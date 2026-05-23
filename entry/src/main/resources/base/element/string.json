@@ -1,0 +1,424 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "Readmigo"
+    },
+    {
+      "name": "module_desc",
+      "value": "Readmigo Harmony entry module"
+    },
+    {
+      "name": "entryability_desc",
+      "value": "Readmigo Harmony entry"
+    },
+    {
+      "name": "tab_discover",
+      "value": "Discover"
+    },
+    {
+      "name": "tab_library",
+      "value": "Library"
+    },
+    {
+      "name": "tab_audiobook",
+      "value": "Audiobooks"
+    },
+    {
+      "name": "tab_me",
+      "value": "Me"
+    },
+    {
+      "name": "common_loading",
+      "value": "Loading..."
+    },
+    {
+      "name": "common_retry",
+      "value": "Retry"
+    },
+    {
+      "name": "common_cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "common_confirm",
+      "value": "OK"
+    },
+    {
+      "name": "common_save",
+      "value": "Save"
+    },
+    {
+      "name": "common_back",
+      "value": "Back"
+    },
+    {
+      "name": "common_search",
+      "value": "Search"
+    },
+    {
+      "name": "common_empty",
+      "value": "Nothing here yet"
+    },
+    {
+      "name": "common_error_network",
+      "value": "Network error, please try again"
+    },
+    {
+      "name": "common_error_unknown",
+      "value": "Something went wrong"
+    },
+    {
+      "name": "login_title",
+      "value": "Sign in"
+    },
+    {
+      "name": "login_phone_placeholder",
+      "value": "Phone number"
+    },
+    {
+      "name": "login_code_placeholder",
+      "value": "Verification code"
+    },
+    {
+      "name": "login_send_code",
+      "value": "Send code"
+    },
+    {
+      "name": "login_submit",
+      "value": "Sign in"
+    },
+    {
+      "name": "login_huawei",
+      "value": "Sign in with Huawei ID"
+    },
+    {
+      "name": "login_wechat",
+      "value": "Sign in with WeChat"
+    },
+    {
+      "name": "login_terms_prefix",
+      "value": "By continuing you agree to our "
+    },
+    {
+      "name": "login_terms_user",
+      "value": "User Agreement"
+    },
+    {
+      "name": "login_terms_privacy",
+      "value": "Privacy Policy"
+    },
+    {
+      "name": "library_title",
+      "value": "My Library"
+    },
+    {
+      "name": "library_empty_title",
+      "value": "Your library is empty"
+    },
+    {
+      "name": "library_empty_action",
+      "value": "Find a book in Discover"
+    },
+    {
+      "name": "library_filter_all",
+      "value": "All"
+    },
+    {
+      "name": "library_filter_reading",
+      "value": "Reading"
+    },
+    {
+      "name": "library_filter_finished",
+      "value": "Finished"
+    },
+    {
+      "name": "reader_loading",
+      "value": "Loading..."
+    },
+    {
+      "name": "reader_settings",
+      "value": "Reading settings"
+    },
+    {
+      "name": "reader_font_size",
+      "value": "Font size"
+    },
+    {
+      "name": "reader_theme_day",
+      "value": "Day"
+    },
+    {
+      "name": "reader_theme_night",
+      "value": "Night"
+    },
+    {
+      "name": "reader_theme_paper",
+      "value": "Sepia"
+    },
+    {
+      "name": "discover_title",
+      "value": "Discover"
+    },
+    {
+      "name": "discover_recommend",
+      "value": "Recommended"
+    },
+    {
+      "name": "discover_categories",
+      "value": "Categories"
+    },
+    {
+      "name": "audiobook_title",
+      "value": "Audiobooks"
+    },
+    {
+      "name": "audiobook_play",
+      "value": "Play"
+    },
+    {
+      "name": "audiobook_pause",
+      "value": "Pause"
+    },
+    {
+      "name": "me_title",
+      "value": "Me"
+    },
+    {
+      "name": "me_settings",
+      "value": "Settings"
+    },
+    {
+      "name": "me_about",
+      "value": "About"
+    },
+    {
+      "name": "me_notes",
+      "value": "My Notes"
+    },
+    {
+      "name": "me_logout",
+      "value": "Sign out"
+    },
+    {
+      "name": "notes_title",
+      "value": "My Notes"
+    },
+    {
+      "name": "notes_empty",
+      "value": "No notes yet. Tap a word in any book to save its meaning."
+    },
+    {
+      "name": "onboarding_welcome",
+      "value": "Welcome to Readmigo"
+    },
+    {
+      "name": "onboarding_subtitle",
+      "value": "Your AI-powered English reading companion"
+    },
+    {
+      "name": "onboarding_start",
+      "value": "Get started"
+    },
+    {
+      "name": "widget_daily_word_label",
+      "value": "Word of the day"
+    },
+    {
+      "name": "widget_daily_word_desc",
+      "value": "A new English word each morning"
+    },
+    {
+      "name": "ability_reader_label",
+      "value": "Reader"
+    },
+    {
+      "name": "ability_reader_desc",
+      "value": "Open last reading book"
+    },
+    {
+      "name": "ability_library_label",
+      "value": "Library"
+    },
+    {
+      "name": "ability_library_desc",
+      "value": "Open my bookshelf"
+    },
+    {
+      "name": "ability_settings_label",
+      "value": "Settings"
+    },
+    {
+      "name": "ability_settings_desc",
+      "value": "Open Readmigo settings"
+    },
+    {
+      "name": "ability_audio_label",
+      "value": "Audiobook"
+    },
+    {
+      "name": "ability_audio_desc",
+      "value": "Open audiobook player"
+    },
+    {
+      "name": "ext_tts_label",
+      "value": "TTS Service"
+    },
+    {
+      "name": "ext_tts_desc",
+      "value": "Background text-to-speech"
+    },
+    {
+      "name": "ext_sync_label",
+      "value": "Sync Service"
+    },
+    {
+      "name": "ext_sync_desc",
+      "value": "Background data sync"
+    },
+    {
+      "name": "ability_lookup_label",
+      "value": "Word Lookup"
+    },
+    {
+      "name": "ability_lookup_desc",
+      "value": "Atomic service: tap to look up a word"
+    },
+    {
+      "name": "ability_share_word_label",
+      "value": "Share Word"
+    },
+    {
+      "name": "ability_share_word_desc",
+      "value": "Atomic service: share a word card"
+    },
+    {
+      "name": "ability_continue_reading_label",
+      "value": "Continue Reading"
+    },
+    {
+      "name": "ability_continue_reading_desc",
+      "value": "Atomic service: continue reading on another device"
+    },
+    {
+      "name": "permission_nfc_reason",
+      "value": "Read NFC tag word for atomic lookup"
+    },
+    {
+      "name": "permission_distributed_reason",
+      "value": "Sync reading progress across devices"
+    },
+    {
+      "name": "widget_reading_progress_label",
+      "value": "My Reading"
+    },
+    {
+      "name": "widget_reading_progress_desc",
+      "value": "Today's reading minutes / current progress / recommendation"
+    },
+    {
+      "name": "widget_ai_tip_label",
+      "value": "AI Tip"
+    },
+    {
+      "name": "widget_ai_tip_desc",
+      "value": "Daily learning tips and AI interaction"
+    },
+    {
+      "name": "ability_car_label",
+      "value": "车机听书"
+    },
+    {
+      "name": "ability_car_desc",
+      "value": "车机模式：语音操控的有声书播放"
+    },
+    {
+      "name": "car_lock_hint",
+      "value": "行驶中，请使用语音操控"
+    },
+    {
+      "name": "car_btn_continue",
+      "value": "继续上次"
+    },
+    {
+      "name": "car_btn_recent",
+      "value": "最近播放"
+    },
+    {
+      "name": "car_btn_library",
+      "value": "我的书架"
+    },
+    {
+      "name": "car_voice_idle",
+      "value": "按下说话"
+    },
+    {
+      "name": "car_voice_listening",
+      "value": "聆听中…"
+    },
+    {
+      "name": "ability_smart_screen_label",
+      "value": "智慧屏阅读"
+    },
+    {
+      "name": "ability_smart_screen_desc",
+      "value": "智慧屏：大屏阅读 + 听书 + 遥控器操控"
+    },
+    {
+      "name": "tv_section_recent",
+      "value": "最近阅读"
+    },
+    {
+      "name": "tv_section_recommend",
+      "value": "今日推荐"
+    },
+    {
+      "name": "tv_hint_remote",
+      "value": "← → 翻页    ↑ ↓ 字号    OK 滚动    MENU 设置"
+    },
+    {
+      "name": "tv_speed_paused",
+      "value": "自动滚动：暂停"
+    },
+    {
+      "name": "ability_watch_label",
+      "value": "Readmigo Watch"
+    },
+    {
+      "name": "ability_watch_desc",
+      "value": "Watch app: vocab review, reading stats, audiobook"
+    },
+    {
+      "name": "widget_watch_vocab_label",
+      "value": "Vocab"
+    },
+    {
+      "name": "widget_watch_vocab_desc",
+      "value": "Watch face card: today's vocab"
+    },
+    {
+      "name": "watch_today_minutes",
+      "value": "Today"
+    },
+    {
+      "name": "watch_quick_vocab",
+      "value": "Vocab"
+    },
+    {
+      "name": "watch_quick_stats",
+      "value": "Stats"
+    },
+    {
+      "name": "watch_quick_audio",
+      "value": "Listen"
+    },
+    {
+      "name": "watch_grade_known",
+      "value": "Know"
+    },
+    {
+      "name": "watch_grade_unknown",
+      "value": "Don't"
+    }
+  ]
+}

@@ -1,0 +1,288 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "米果智读"
+    },
+    {
+      "name": "module_desc",
+      "value": "米果智读鸿蒙版主模块"
+    },
+    {
+      "name": "entryability_desc",
+      "value": "米果智读鸿蒙版入口"
+    },
+    {
+      "name": "tab_discover",
+      "value": "发现"
+    },
+    {
+      "name": "tab_library",
+      "value": "书架"
+    },
+    {
+      "name": "tab_audiobook",
+      "value": "听书"
+    },
+    {
+      "name": "tab_me",
+      "value": "我的"
+    },
+    {
+      "name": "common_loading",
+      "value": "加载中..."
+    },
+    {
+      "name": "common_retry",
+      "value": "重试"
+    },
+    {
+      "name": "common_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "common_confirm",
+      "value": "确定"
+    },
+    {
+      "name": "common_save",
+      "value": "保存"
+    },
+    {
+      "name": "common_back",
+      "value": "返回"
+    },
+    {
+      "name": "common_search",
+      "value": "搜索"
+    },
+    {
+      "name": "common_empty",
+      "value": "暂无内容"
+    },
+    {
+      "name": "common_error_network",
+      "value": "网络异常，请稍后重试"
+    },
+    {
+      "name": "common_error_unknown",
+      "value": "出错了，请稍后重试"
+    },
+    {
+      "name": "login_title",
+      "value": "登录"
+    },
+    {
+      "name": "login_phone_placeholder",
+      "value": "请输入手机号"
+    },
+    {
+      "name": "login_code_placeholder",
+      "value": "请输入验证码"
+    },
+    {
+      "name": "login_send_code",
+      "value": "获取验证码"
+    },
+    {
+      "name": "login_submit",
+      "value": "登录"
+    },
+    {
+      "name": "login_huawei",
+      "value": "华为账号一键登录"
+    },
+    {
+      "name": "login_wechat",
+      "value": "微信登录"
+    },
+    {
+      "name": "login_terms_prefix",
+      "value": "登录即代表同意"
+    },
+    {
+      "name": "login_terms_user",
+      "value": "《用户协议》"
+    },
+    {
+      "name": "login_terms_privacy",
+      "value": "《隐私政策》"
+    },
+    {
+      "name": "library_title",
+      "value": "我的书架"
+    },
+    {
+      "name": "library_empty_title",
+      "value": "书架空空如也"
+    },
+    {
+      "name": "library_empty_action",
+      "value": "去发现页找一本"
+    },
+    {
+      "name": "library_filter_all",
+      "value": "全部"
+    },
+    {
+      "name": "library_filter_reading",
+      "value": "在读"
+    },
+    {
+      "name": "library_filter_finished",
+      "value": "读完"
+    },
+    {
+      "name": "reader_loading",
+      "value": "加载中..."
+    },
+    {
+      "name": "reader_settings",
+      "value": "阅读设置"
+    },
+    {
+      "name": "reader_font_size",
+      "value": "字号"
+    },
+    {
+      "name": "reader_theme_day",
+      "value": "日间"
+    },
+    {
+      "name": "reader_theme_night",
+      "value": "夜间"
+    },
+    {
+      "name": "reader_theme_paper",
+      "value": "羊皮纸"
+    },
+    {
+      "name": "discover_title",
+      "value": "发现"
+    },
+    {
+      "name": "discover_recommend",
+      "value": "为你推荐"
+    },
+    {
+      "name": "discover_categories",
+      "value": "分类浏览"
+    },
+    {
+      "name": "audiobook_title",
+      "value": "听书"
+    },
+    {
+      "name": "audiobook_play",
+      "value": "播放"
+    },
+    {
+      "name": "audiobook_pause",
+      "value": "暂停"
+    },
+    {
+      "name": "me_title",
+      "value": "我的"
+    },
+    {
+      "name": "me_settings",
+      "value": "设置"
+    },
+    {
+      "name": "me_about",
+      "value": "关于"
+    },
+    {
+      "name": "me_notes",
+      "value": "我的笔记"
+    },
+    {
+      "name": "me_logout",
+      "value": "退出登录"
+    },
+    {
+      "name": "notes_title",
+      "value": "我的笔记"
+    },
+    {
+      "name": "notes_empty",
+      "value": "还没有笔记。在任何一本书里点击单词即可保存释义。"
+    },
+    {
+      "name": "onboarding_welcome",
+      "value": "欢迎使用米果智读"
+    },
+    {
+      "name": "onboarding_subtitle",
+      "value": "AI 时代的英语阅读伴侣"
+    },
+    {
+      "name": "onboarding_start",
+      "value": "开始"
+    },
+    {
+      "name": "widget_daily_word_label",
+      "value": "今日一词"
+    },
+    {
+      "name": "widget_daily_word_desc",
+      "value": "每日一个英语单词"
+    },
+    {
+      "name": "widget_reading_progress_label",
+      "value": "我的阅读"
+    },
+    {
+      "name": "widget_reading_progress_desc",
+      "value": "今天读了多少 / 当前进度 / 推荐"
+    },
+    {
+      "name": "widget_ai_tip_label",
+      "value": "AI 助手"
+    },
+    {
+      "name": "widget_ai_tip_desc",
+      "value": "每日学习贴士与 AI 互动"
+    },
+    {
+      "name": "ability_watch_label",
+      "value": "米果智读手表版"
+    },
+    {
+      "name": "ability_watch_desc",
+      "value": "手表 App：生词复习、阅读统计、听书"
+    },
+    {
+      "name": "widget_watch_vocab_label",
+      "value": "生词卡"
+    },
+    {
+      "name": "widget_watch_vocab_desc",
+      "value": "表盘卡片：今日一词"
+    },
+    {
+      "name": "watch_today_minutes",
+      "value": "今日"
+    },
+    {
+      "name": "watch_quick_vocab",
+      "value": "今日一词"
+    },
+    {
+      "name": "watch_quick_stats",
+      "value": "阅读统计"
+    },
+    {
+      "name": "watch_quick_audio",
+      "value": "继续听书"
+    },
+    {
+      "name": "watch_grade_known",
+      "value": "知道"
+    },
+    {
+      "name": "watch_grade_unknown",
+      "value": "不会"
+    }
+  ]
+}

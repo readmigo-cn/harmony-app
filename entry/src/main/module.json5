@@ -1,0 +1,440 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    // W11-C4：声明支持的设备类型；元服务（installationFree）必须覆盖 phone / tablet / 2in1
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1",
+      // W16-C1：车机听书模式（仅 CarAbility 暴露给 car 设备类型）
+      "car",
+      // W15-C1：手表 App（仅 WatchAbility + WatchVocabCardExtensionAbility 暴露给 wearable）
+      "wearable",
+      // W15-C3：智慧屏 App（仅 SmartScreenAbility 暴露给 smartTV）
+      "smartTV"
+    ],
+    "deliveryWithInstall": true,
+    // W11-C4：开启 Atomic Service 模式，允许免安装直接运行
+    "installationFree": true,
+    "pages": "$profile:main_pages",
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:entryability_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:app_name",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
+          },
+          // W11-B2 占位：从主 App 接收元服务回传（接续 / 分享回包）
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.atomicService"
+            ],
+            "uris": [
+              {
+                "scheme": "readmigo",
+                "host": "open"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ReaderAbility",
+        "srcEntry": "./ets/abilities/ReaderAbility.ets",
+        "description": "$string:ability_reader_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_reader_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton",
+        "skills": [
+          {
+            "entities": [
+              "entity.system.default"
+            ],
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            // 阅读接续元服务深链 readmigo://reader?bookId=xxx&chapter=N&page=M
+            "uris": [
+              {
+                "scheme": "readmigo",
+                "host": "reader"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "LibraryAbility",
+        "srcEntry": "./ets/abilities/LibraryAbility.ets",
+        "description": "$string:ability_library_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_library_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton"
+      },
+      {
+        "name": "SettingsAbility",
+        "srcEntry": "./ets/abilities/SettingsAbility.ets",
+        "description": "$string:ability_settings_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_settings_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton"
+      },
+      {
+        "name": "AudioAbility",
+        "srcEntry": "./ets/abilities/AudioAbility.ets",
+        "description": "$string:ability_audio_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_audio_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton"
+      },
+      // W11-C1：划词查询元服务（lookup）
+      // 三种入口共用一个 skills 段：
+      //   1. 主 App / 其他 App startAbility（want.parameters.word）
+      //   2. NFC 碰一碰：ACTION_NDEF_DISCOVERED → 解析 text record 取出 word
+      //   3. 短链 readmigo://lookup?word=foo&context=bar
+      {
+        "name": "LookupAbility",
+        "srcEntry": "./ets/abilities/LookupAbility.ets",
+        "description": "$string:ability_lookup_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_lookup_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton",
+        "skills": [
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.atomicService"
+            ],
+            "uris": [
+              {
+                "scheme": "readmigo",
+                "host": "lookup"
+              }
+            ]
+          },
+          {
+            // NFC 碰一碰（NDEF text record）
+            "actions": [
+              "ohos.nfc.tag.action.TAG_FOUND"
+            ],
+            "entities": [
+              "entity.system.atomicService"
+            ]
+          }
+        ]
+      },
+      // W11-C2：单词分享元服务
+      // 拉起方式：
+      //   1. 主 App 划词后调 startAbility（want.parameters.word/context/...）
+      //   2. 短链 readmigo://share-word?word=foo
+      {
+        "name": "ShareWordAbility",
+        "srcEntry": "./ets/abilities/ShareWordAbility.ets",
+        "description": "$string:ability_share_word_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_share_word_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton",
+        "skills": [
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.atomicService"
+            ],
+            "uris": [
+              {
+                "scheme": "readmigo",
+                "host": "share-word"
+              }
+            ]
+          }
+        ]
+      },
+      // W16-C1：车机听书模式
+      // launchType=singleton：车机仅允许一个听书 UI（防双播）
+      // 仅在 car 设备类型上分发；行驶中 UI 锁定，仅语音 / 方向盘按键可控制
+      {
+        "name": "CarAbility",
+        "srcEntry": "./ets/abilities/CarAbility.ets",
+        "description": "$string:ability_car_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_car_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton",
+        "deviceTypes": [
+          "car"
+        ],
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
+          },
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.default"
+            ],
+            "uris": [
+              {
+                "scheme": "readmigo",
+                "host": "car"
+              }
+            ]
+          }
+        ]
+      },
+      // W15-C1：手表 App UIAbility
+      // 仅在 wearable 设备启动；launchType=singleton 防 launcher 多开
+      // 不依赖 EntryAbility — 手表 App 走独立简化栈
+      {
+        "name": "WatchAbility",
+        "srcEntry": "./ets/abilities/WatchAbility.ets",
+        "description": "$string:ability_watch_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_watch_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton",
+        "deviceTypes": [
+          "wearable"
+        ],
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
+          }
+        ]
+      },
+      // W15-C3：智慧屏 App UIAbility
+      // 仅在 smartTV 设备启动；launchType=singleton 防同时多实例
+      // 大屏沉浸阅读 + 听书 + 遥控器 KeyEvent 监听
+      {
+        "name": "SmartScreenAbility",
+        "srcEntry": "./ets/abilities/SmartScreenAbility.ets",
+        "description": "$string:ability_smart_screen_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_smart_screen_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "singleton",
+        "deviceTypes": [
+          "smartTV"
+        ],
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
+          },
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.default"
+            ],
+            "uris": [
+              {
+                "scheme": "readmigo",
+                "host": "tv"
+              }
+            ]
+          }
+        ]
+      },
+      // W11-C3：阅读接续元服务（多端协同）
+      // launchType=specified：每本书一个实例（onAcceptWant 决定）
+      // continuable=true：开启 HarmonyOS 跨端 Continuation 框架
+      {
+        "name": "ContinueReadingAbility",
+        "srcEntry": "./ets/abilities/ContinueReadingAbility.ets",
+        "description": "$string:ability_continue_reading_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:ability_continue_reading_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "launchType": "specified",
+        "continuable": true,
+        "skills": [
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "entities": [
+              "entity.system.atomicService"
+            ],
+            "uris": [
+              {
+                "scheme": "readmigo",
+                "host": "continue-reading"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "DailyWordExtensionAbility",
+        "srcEntry": "./ets/widget/DailyWordExtensionAbility.ets",
+        "label": "$string:widget_daily_word_label",
+        "description": "$string:widget_daily_word_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      },
+      {
+        "name": "ReadingProgressExtensionAbility",
+        "srcEntry": "./ets/widget/ReadingProgressExtensionAbility.ets",
+        "label": "$string:widget_reading_progress_label",
+        "description": "$string:widget_reading_progress_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      },
+      {
+        "name": "AiTipExtensionAbility",
+        "srcEntry": "./ets/widget/AiTipExtensionAbility.ets",
+        "label": "$string:widget_ai_tip_label",
+        "description": "$string:widget_ai_tip_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      },
+      // W15-C2：表盘单词卡（仅 wearable）
+      {
+        "name": "WatchVocabCardExtensionAbility",
+        "srcEntry": "./ets/widget/WatchVocabCardExtensionAbility.ets",
+        "label": "$string:widget_watch_vocab_label",
+        "description": "$string:widget_watch_vocab_desc",
+        "type": "form",
+        "deviceTypes": [
+          "wearable"
+        ],
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      },
+      {
+        "name": "TtsServiceExtAbility",
+        "srcEntry": "./ets/extensions/TtsServiceExtAbility.ets",
+        "label": "$string:ext_tts_label",
+        "description": "$string:ext_tts_desc",
+        "icon": "$media:app_icon",
+        "type": "service",
+        "exported": false
+      },
+      {
+        "name": "SyncServiceExtAbility",
+        "srcEntry": "./ets/extensions/SyncServiceExtAbility.ets",
+        "label": "$string:ext_sync_label",
+        "description": "$string:ext_sync_desc",
+        "icon": "$media:app_icon",
+        "type": "service",
+        "exported": false
+      }
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET"
+      },
+      // W11-C4：碰一碰（NFC NDEF 读取）— 元服务用
+      {
+        "name": "ohos.permission.NFC",
+        "reason": "$string:permission_nfc_reason",
+        "usedScene": {
+          "abilities": [
+            "LookupAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      // W11-C4：分布式数据同步（手机 → 平板接续）
+      {
+        "name": "ohos.permission.DISTRIBUTED_DATASYNC",
+        "reason": "$string:permission_distributed_reason",
+        "usedScene": {
+          "abilities": [
+            "ReaderAbility",
+            "AudioAbility",
+            "LookupAbility",
+            "ContinueReadingAbility"
+          ],
+          "when": "inuse"
+        }
+      }
+    ]
+  }
+}

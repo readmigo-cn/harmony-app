@@ -1,0 +1,69 @@
+{
+  // ============================================================
+  // Readmigo CN HarmonyOS NEXT - Root build-profile.json5
+  // Target: HarmonyOS NEXT (API 12+, runtimeOS = HarmonyOS)
+  // Bundle: com.readmigo.harmony.cn
+  // Vendor: Readmigo CN (北京瑞光科技有限公司)
+  // ============================================================
+  "app": {
+    // signing-configs placeholder for production builds.
+    // TODO(W2): replace with real production signing configuration generated
+    // from `.p12` + `.cer` + profile via DevEco Studio (see docs/04-development/harmony-signing.md).
+    "signingConfigs": [
+      // Example shape (uncomment and fill in W2):
+      // {
+      //   "name": "release",
+      //   "type": "HarmonyOS",
+      //   "material": {
+      //     "certpath": "./signing/release.cer",
+      //     "storePassword": "",
+      //     "keyAlias": "readmigo-cn",
+      //     "keyPassword": "",
+      //     "profile": "./signing/release.p7b",
+      //     "signAlg": "SHA256withECDSA",
+      //     "storeFile": "./signing/release.p12"
+      //   }
+      // }
+    ],
+    "products": [
+      {
+        // `default` product = debug build (no signing in W1)
+        "name": "default",
+        "signingConfig": "default",
+        // HarmonyOS NEXT API 12+ baseline (5.0.0(12) → API level 12)
+        "compatibleSdkVersion": "5.0.0(12)",
+        "compileSdkVersion": "5.0.0(12)",
+        "targetSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS"
+      },
+      {
+        // `release` product placeholder (W2 will wire `signingConfig: "release"`)
+        "name": "release",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "compileSdkVersion": "5.0.0(12)",
+        "targetSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      { "name": "debug" },
+      { "name": "release" }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "signings": [
+    {
+      "name": "readmigo",
+      "type": "HarmonyOS",
+      "material": {
+        "certpath": "",
+        "keyAlias": "readmigo",
+        "keyPassword": "",
+        "storeFile": "",
+        "storePassword": ""
+      }
+    }
+  ]
+}

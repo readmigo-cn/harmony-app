@@ -1,0 +1,23 @@
+{
+  // ============================================================
+  // entry module oh-package.json5
+  // ArkTS dependencies for the HarmonyOS NEXT entry module.
+  // ============================================================
+  "name": "entry",
+  "version": "0.1.0",
+  "description": "Readmigo CN HarmonyOS entry module",
+  "main": "",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {
+    // 真实 .so 编出来后由 hvigor 自动写入 entry/libs/arm64-v8a/libreadmigo_typesetting.so，
+    // ets 端用 `import typesetting from 'libreadmigo_typesetting.so'` 加载。
+    // 当前 NATIVE_AVAILABLE=false 时，typesetting.ets 走 mock，无需真依赖。
+  },
+  "devDependencies": {
+    // Hypium is the HarmonyOS unit-test framework. Used by ohosTest tests under
+    // `entry/src/ohosTest/ets/test/`. See W1-C6 phase 1 setup; assertions will
+    // be expanded in Phase 2 alongside real UI rendering tests.
+    "@ohos/hypium": "1.0.19"
+  }
+}

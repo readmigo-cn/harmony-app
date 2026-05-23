@@ -1,0 +1,8 @@
+{
+  "client": {
+    "app_id": "replace-with-agc-app-id",
+    "client_id": "replace-with-agc-client-id",
+    "client_secret": "replace-with-agc-client-secret",
+    "project_id": "replace-with-agc-project-id"
+  }
+}

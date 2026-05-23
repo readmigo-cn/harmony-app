@@ -1,0 +1,37 @@
+{
+  // ============================================================
+  // entry module build-profile.json5
+  // Stage model app entry; native typesetting bridge wired via CMake.
+  // ============================================================
+  "apiType": "stageMode",
+  "buildOption": {
+    "externalNativeOptions": {
+      "path": "./src/main/cpp/CMakeLists.txt",
+      "arguments": "",
+      "cppFlags": "",
+      // HarmonyOS NEXT phones are arm64 only.
+      "abiFilters": [
+        "arm64-v8a"
+      ]
+    }
+  },
+  // TODO(PR-7): verify exclude syntax with hvigor docs; current best guess
+  // based on hvigor 4.x source-option spec. The intent is: dev-only screens
+  // under features/dev/ should not be bundled into release builds.
+  "buildOptionSet": [
+    {
+      "name": "release",
+      "sourceOption": {
+        "scan": {
+          "excludePatterns": ["./src/main/ets/features/dev/**"]
+        }
+      }
+    }
+  ],
+  "targets": [
+    {
+      // `default` target maps to root products `default` (debug) and `release`.
+      "name": "default"
+    }
+  ]
+}

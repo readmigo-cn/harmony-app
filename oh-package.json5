@@ -1,0 +1,18 @@
+{
+  // ============================================================
+  // Readmigo CN HarmonyOS NEXT - Root oh-package.json5
+  // Workspace-level OpenHarmony package manifest.
+  // ============================================================
+  "modelVersion": "6.1.0",
+  "name": "readmigo-harmony-app",
+  "version": "0.1.0",
+  "description": "Readmigo CN HarmonyOS NEXT application scaffold (米果智读)",
+  "author": "Readmigo CN (北京瑞光科技有限公司)",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    // Hypium is the HarmonyOS unit-test framework (analogous to Jest for Node).
+    // See entry/oh-package.json5 for module-level test dependency declaration.
+    "@ohos/hypium": "1.0.19"
+  }
+}

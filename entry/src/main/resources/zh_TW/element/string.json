@@ -1,0 +1,83 @@
+{
+  "string": [
+    { "name": "app_name", "value": "閱可" },
+    { "name": "module_desc", "value": "閱可鴻蒙版主模組" },
+    { "name": "entryability_desc", "value": "閱可鴻蒙版入口" },
+
+    { "name": "tab_discover", "value": "發現" },
+    { "name": "tab_library", "value": "書架" },
+    { "name": "tab_audiobook", "value": "聽書" },
+    { "name": "tab_me", "value": "我的" },
+
+    { "name": "common_loading", "value": "載入中..." },
+    { "name": "common_retry", "value": "重試" },
+    { "name": "common_cancel", "value": "取消" },
+    { "name": "common_confirm", "value": "確定" },
+    { "name": "common_save", "value": "儲存" },
+    { "name": "common_back", "value": "返回" },
+    { "name": "common_search", "value": "搜尋" },
+    { "name": "common_empty", "value": "暫無內容" },
+    { "name": "common_error_network", "value": "網路異常，請稍後再試" },
+    { "name": "common_error_unknown", "value": "出錯了，請稍後再試" },
+
+    { "name": "login_title", "value": "登入" },
+    { "name": "login_phone_placeholder", "value": "請輸入手機號碼" },
+    { "name": "login_code_placeholder", "value": "請輸入驗證碼" },
+    { "name": "login_send_code", "value": "取得驗證碼" },
+    { "name": "login_submit", "value": "登入" },
+    { "name": "login_huawei", "value": "華為帳號一鍵登入" },
+    { "name": "login_wechat", "value": "微信登入" },
+    { "name": "login_terms_prefix", "value": "登入即代表同意" },
+    { "name": "login_terms_user", "value": "《使用者協議》" },
+    { "name": "login_terms_privacy", "value": "《隱私政策》" },
+
+    { "name": "library_title", "value": "我的書架" },
+    { "name": "library_empty_title", "value": "書架空空如也" },
+    { "name": "library_empty_action", "value": "去發現頁找一本" },
+    { "name": "library_filter_all", "value": "全部" },
+    { "name": "library_filter_reading", "value": "在讀" },
+    { "name": "library_filter_finished", "value": "讀完" },
+
+    { "name": "reader_loading", "value": "載入中..." },
+    { "name": "reader_settings", "value": "閱讀設定" },
+    { "name": "reader_font_size", "value": "字級" },
+    { "name": "reader_theme_day", "value": "日間" },
+    { "name": "reader_theme_night", "value": "夜間" },
+    { "name": "reader_theme_paper", "value": "羊皮紙" },
+
+    { "name": "discover_title", "value": "發現" },
+    { "name": "discover_recommend", "value": "為你推薦" },
+    { "name": "discover_categories", "value": "分類瀏覽" },
+
+    { "name": "audiobook_title", "value": "聽書" },
+    { "name": "audiobook_play", "value": "播放" },
+    { "name": "audiobook_pause", "value": "暫停" },
+
+    { "name": "me_title", "value": "我的" },
+    { "name": "me_settings", "value": "設定" },
+    { "name": "me_about", "value": "關於" },
+    { "name": "me_notes", "value": "我的筆記" },
+    { "name": "me_logout", "value": "登出" },
+
+    { "name": "notes_title", "value": "我的筆記" },
+    { "name": "notes_empty", "value": "還沒有筆記。在任何一本書裡點擊單字即可儲存釋義。" },
+
+    { "name": "onboarding_welcome", "value": "歡迎使用閱可" },
+    { "name": "onboarding_subtitle", "value": "AI 時代的英語閱讀夥伴" },
+    { "name": "onboarding_start", "value": "開始" },
+
+    { "name": "widget_daily_word_label", "value": "今日一詞" },
+    { "name": "widget_daily_word_desc", "value": "每日一個英語單詞" },
+
+    { "name": "ability_watch_label", "value": "閱可手錶版" },
+    { "name": "ability_watch_desc", "value": "手錶 App：生詞複習、閱讀統計、聽書" },
+    { "name": "widget_watch_vocab_label", "value": "生詞卡" },
+    { "name": "widget_watch_vocab_desc", "value": "錶盤卡片：今日一詞" },
+    { "name": "watch_today_minutes", "value": "今日" },
+    { "name": "watch_quick_vocab", "value": "今日一詞" },
+    { "name": "watch_quick_stats", "value": "閱讀統計" },
+    { "name": "watch_quick_audio", "value": "繼續聽書" },
+    { "name": "watch_grade_known", "value": "知道" },
+    { "name": "watch_grade_unknown", "value": "不會" }
+  ]
+}

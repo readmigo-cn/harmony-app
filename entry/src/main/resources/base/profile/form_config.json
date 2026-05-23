@@ -1,0 +1,84 @@
+{
+  "forms": [
+    {
+      "name": "DailyWordCard",
+      "description": "$string:widget_daily_word_desc",
+      "src": "./ets/widget/pages/DailyWordCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDefault": true,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "08:00",
+      "updateDuration": 1,
+      "defaultDimension": "2*2",
+      "supportDimensions": ["1*2", "2*2", "2*4"],
+      "formConfigAbility": "ability://DailyWordExtensionAbility",
+      "formVisibleNotify": true,
+      "dataProxyEnabled": false
+    },
+    {
+      "name": "ReadingProgressCard",
+      "description": "$string:widget_reading_progress_desc",
+      "src": "./ets/widget/pages/ReadingProgressCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDefault": false,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "08:30",
+      "updateDuration": 2,
+      "defaultDimension": "2*2",
+      "supportDimensions": ["1*2", "2*2", "2*4"],
+      "formConfigAbility": "ability://ReadingProgressExtensionAbility",
+      "formVisibleNotify": true,
+      "dataProxyEnabled": false
+    },
+    {
+      "name": "AiTipCard",
+      "description": "$string:widget_ai_tip_desc",
+      "src": "./ets/widget/pages/AiTipCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDefault": false,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "09:00",
+      "updateDuration": 24,
+      "defaultDimension": "2*2",
+      "supportDimensions": ["2*2", "2*4"],
+      "formConfigAbility": "ability://AiTipExtensionAbility",
+      "formVisibleNotify": true,
+      "dataProxyEnabled": false
+    },
+    {
+      "name": "WatchVocabCard",
+      "description": "$string:widget_watch_vocab_desc",
+      "src": "./ets/widget/pages/WatchVocabCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 466,
+        "autoDesignWidth": true
+      },
+      "colorMode": "dark",
+      "isDefault": true,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "08:00",
+      "updateDuration": 4,
+      "defaultDimension": "1*1",
+      "supportDimensions": ["1*1"],
+      "formConfigAbility": "ability://WatchVocabCardExtensionAbility",
+      "formVisibleNotify": true,
+      "dataProxyEnabled": false
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+# DevEco Studio
+.idea/
+.gradle/
+build/
+oh_modules/
+.preview/
+*.iml
+local.properties
+.hvigor/
+.appanalyzer/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+.dist/
+*.hap
+*.app
+*.so
+*.a
+build-output/
+
+# C++ build
+cmake-build-*/
+*.o
+*.obj
+
+# Logs
+*.log
+logs/
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Env & secrets
+.env
+.env.local
+.env.*.local
+agconnect-services.json
+*.mobileprovision
+*.key
+*.pem
+*.p12
+*.jks
+.har/
+secret/
+secrets/
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# HarmonyOS signing materials (never commit)
+*.cer
+*.p7b
+HarmonyAppProvision-*
+
+# Refactor snapshots (regenerated per PR)
+.refactor-snapshots/
