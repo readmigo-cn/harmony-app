@@ -1,110 +1,110 @@
-# harmony-app Feature-First 重构实施计划
+# harmony-app Feature-First refactor implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 `readmigo-cn-repos/harmony-app/` 从横向分层结构重构为 Hybrid feature-first 架构，分 7 个独立可回退的 PR 完成。
+**Goal:** Refactor `harmony-app/` from horizontal-layer structure to Hybrid feature-first architecture, delivered as 7 independently revertible PRs.
 
-**Architecture:** 顶层目录 = `core/` (跨切+平台) + `ui/` (共享 UI) + `api/` (业务域分包的 HTTP 客户端) + `store/` (全局响应式 store) + `model/` (单一源 domain model) + `features/` (15 个垂直 feature)。每个 PR 仅做 `git mv` + import 路径重写 + 必要的 schema 合并，**不做语义重构**。
+**Architecture:** Top-level directories = `core/` (cross-cutting + platform) + `ui/` (shared UI) + `api/` (HTTP client split by business domain) + `store/` (global reactive store) + `model/` (single-source domain model) + `features/` (15 vertical features). Each PR does only `git mv` + import path rewrites + the necessary schema merge; **no semantic refactoring**.
 
-**Tech Stack:** ArkTS (HarmonyOS NEXT) / hvigor build / Hypium 单测 / Node.js codemod / git on Gitee。
+**Tech Stack:** ArkTS (HarmonyOS NEXT) / hvigor build / Hypium unit tests / Node.js codemod / git on Gitee.
 
 **Spec:** [`./2026-05-17-harmony-app-feature-first-design.md`](./2026-05-17-harmony-app-feature-first-design.md)
 
-**Working Directory:** All paths below are relative to `readmigo-cn-repos/harmony-app/` unless explicitly absolute.
+**Working Directory:** All paths below are relative to `harmony-app/` unless explicitly absolute.
 
 ---
 
-## 关于 TDD 在此 Plan 中的含义
+## On the meaning of TDD in this plan
 
-本计划主要是**纯重构（pure refactoring）**：文件搬迁 + import 重写，不引入新功能。传统的"写测试→看红→实现→看绿"循环不适用。**这里"测试"的定义是：**
+This plan is primarily a **pure refactor**: file relocation + import rewriting; no new features are introduced. The classical "write test → see red → implement → see green" loop does not apply. **Here "tests" means:**
 
-1. `hvigor clean build` 必须通过（构建即测试）
-2. Hypium 既有单测必须保持通过（回归测试）
-3. 真机冷启动 + 5 主 tab smoke 必须 OK（人工 smoke）
-4. 各 PR 末尾的特定 `grep` / `find` 命令必须返回符合预期的输出（结构断言）
+1. `hvigor clean build` must pass (the build is the test)
+2. Existing Hypium unit tests must keep passing (regression test)
+3. Real-device cold start + 5-main-tab smoke must be OK (manual smoke)
+4. The specific `grep` / `find` commands at each PR's tail must return expected output (structural assertions)
 
-每个任务遵循同样的节奏：**Action → Verify → Commit**。如果 Verify 失败，按 spec §7.3 的回滚预案处理。
+Every task follows the same rhythm: **Action → Verify → Commit**. If Verify fails, apply the rollback playbook in spec §7.3.
 
 ---
 
-## 通用命令前缀
+## Common command prefix
 
-所有命令默认在 `readmigo-cn-repos/harmony-app/` 下运行：
+All commands default to running under `harmony-app/`:
 
 ```bash
-cd /Users/HONGBGU/Documents/readmigo-cn/readmigo-cn-repos/harmony-app
+cd /Users/HONGBGU/Documents/readmigo-cn/harmony-app
 ```
 
-每个 task 结束前的**强制验证套件**（下文简称 **"VERIFY 套件"**）：
+The **mandatory verification suite** before every task ends (referred to below as the **"VERIFY suite"**):
 
 ```bash
-# 1. 全量构建（必跑 clean）
+# 1. Full build (always clean)
 rm -rf build oh_modules
 ohpm install
 hvigor clean
 hvigor assembleHap
 
-# 2. Hypium 单测
+# 2. Hypium unit tests
 hvigor test
 
-# 3. .ts 残留检查（PR-1 完成后持续保持 = 0）
+# 3. .ts residue check (must remain 0 after PR-1)
 find entry/src/main/ets -name "*.ts" | wc -l
 
-# 4. NAPI ABI 不变性
+# 4. NAPI ABI invariance
 grep -rn "from 'lib.*\.so'" entry/src/main/ets/ | sort > /tmp/napi-after.txt
-diff /tmp/napi-before.txt /tmp/napi-after.txt   # 必须为空
+diff /tmp/napi-before.txt /tmp/napi-after.txt   # must be empty
 ```
 
 ---
 
-## 文件结构（重构目标终态）
+## File structure (refactor target state)
 
-### Core 层（跨切关注点 + 平台能力）
+### Core layer (cross-cutting concerns + platform capabilities)
 
-| 路径 | 职责 |
+| Path | Responsibility |
 |---|---|
-| `entry/src/main/ets/core/router/RouteConstants.ets` | 路由路径常量（按 features 分组注释） |
-| `entry/src/main/ets/core/router/RouterService.ets` | 路由跳转服务 |
-| `entry/src/main/ets/core/shell/Index.ets` | App 骨架 + TabBar（原 pages/Index.ets） |
-| `entry/src/main/ets/core/native/` | NAPI 调用层（含 `import x from 'lib*.so'`，**ABI 不动**） |
+| `entry/src/main/ets/core/router/RouteConstants.ets` | Route path constants (grouped by feature with comments) |
+| `entry/src/main/ets/core/router/RouterService.ets` | Routing service |
+| `entry/src/main/ets/core/shell/Index.ets` | App skeleton + TabBar (originally pages/Index.ets) |
+| `entry/src/main/ets/core/native/` | NAPI call layer (contains `import x from 'lib*.so'`, **ABI unchanged**) |
 | `entry/src/main/ets/core/persistence/` | DatabaseManager / RdbOrm / repositories / PreferencesManager |
-| `entry/src/main/ets/core/widget/` | 桌面卡片 widget |
-| `entry/src/main/ets/core/theme/` | 主题系统 |
-| `entry/src/main/ets/core/extensions/` | 扩展工具 |
-| `entry/src/main/ets/core/analytics/` | 埋点 |
-| `entry/src/main/ets/core/monitoring/` | 监控 |
-| `entry/src/main/ets/core/performance/` | 性能指标采集 |
-| `entry/src/main/ets/core/cache/` | 内存/磁盘 cache |
-| `entry/src/main/ets/core/experiments/` | A/B 实验 |
-| `entry/src/main/ets/core/moderation/` | 内容审核 |
-| `entry/src/main/ets/core/dynamic/` | 动态配置 / hot config |
-| `entry/src/main/ets/core/atomic/` | 鸿蒙原子化服务支持 |
+| `entry/src/main/ets/core/widget/` | Home-screen widget cards |
+| `entry/src/main/ets/core/theme/` | Theming system |
+| `entry/src/main/ets/core/extensions/` | Extension utilities |
+| `entry/src/main/ets/core/analytics/` | Analytics |
+| `entry/src/main/ets/core/monitoring/` | Monitoring |
+| `entry/src/main/ets/core/performance/` | Performance metric collection |
+| `entry/src/main/ets/core/cache/` | In-memory / disk cache |
+| `entry/src/main/ets/core/experiments/` | A/B experiments |
+| `entry/src/main/ets/core/moderation/` | Content moderation |
+| `entry/src/main/ets/core/dynamic/` | Dynamic config / hot config |
+| `entry/src/main/ets/core/atomic/` | HarmonyOS atomic-service runtime support |
 
-### UI / API / Store / Model / Features 层
+### UI / API / Store / Model / Features layers
 
-详见 spec §3.1 目录树与 §4 features 切分清单。
+See spec §3.1 directory tree and §4 features split inventory.
 
-### 工具与脚本
+### Tools and scripts
 
-| 路径 | 职责 |
+| Path | Responsibility |
 |---|---|
-| `scripts/rewrite-imports.mjs` | Node.js codemod，按 `rewrite-map-prX.json` 重写 import |
-| `scripts/rewrite-map-pr1.json` ... `pr7.json` | 每 PR 的路径映射表 |
-| `scripts/check-import-boundary.mjs` | PR-7 引入，校验跨层依赖规则 |
-| `scripts/test-rewrite/` | codemod 自身的 fixture 测试 |
+| `scripts/rewrite-imports.mjs` | Node.js codemod that rewrites imports according to `rewrite-map-prX.json` |
+| `scripts/rewrite-map-pr1.json` ... `pr7.json` | Per-PR path mapping table |
+| `scripts/check-import-boundary.mjs` | Introduced in PR-7; validates cross-layer dependency rules |
+| `scripts/test-rewrite/` | Fixture tests for the codemod itself |
 
 ---
 
-# PR-0：Codemod 基础设施（前置任务）
+# PR-0: Codemod infrastructure (preliminary task)
 
-PR-0 给所有后续 PR 提供 import 重写工具。**必须在 PR-1 开始前完成。**
+PR-0 provides the import rewriting tool used by every subsequent PR. **Must complete before starting PR-1.**
 
-### Task 0.1：创建 codemod 主脚本
+### Task 0.1: Create the codemod main script
 
 **Files:**
 - Create: `scripts/rewrite-imports.mjs`
 
-- [ ] **Step 1：写脚本**
+- [ ] **Step 1: Write the script**
 
 ```javascript
 // scripts/rewrite-imports.mjs
@@ -158,14 +158,14 @@ async function main() {
 main().catch(err => { console.error(err); process.exit(1); });
 ```
 
-- [ ] **Step 2：Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
 git add scripts/rewrite-imports.mjs
 git commit -m "chore(scripts): add codemod for import rewriting"
 ```
 
-### Task 0.2：codemod 自测 fixture
+### Task 0.2: Codemod self-test fixture
 
 **Files:**
 - Create: `scripts/test-rewrite/fixture.ets`
@@ -173,7 +173,7 @@ git commit -m "chore(scripts): add codemod for import rewriting"
 - Create: `scripts/test-rewrite/test-map.json`
 - Create: `scripts/test-rewrite/run-test.mjs`
 
-- [ ] **Step 1：写 fixture 输入**
+- [ ] **Step 1: Write fixture input**
 
 ```
 // scripts/test-rewrite/fixture.ets
@@ -183,7 +183,7 @@ import { Baz } from 'libnative.so';
 import { Qux } from '../router/RouterService';
 ```
 
-- [ ] **Step 2：写期望输出**
+- [ ] **Step 2: Write expected output**
 
 ```
 // scripts/test-rewrite/expected.ets
@@ -193,7 +193,7 @@ import { Baz } from 'libnative.so';
 import { Qux } from '../core/router/RouterService';
 ```
 
-- [ ] **Step 3：写测试用 map**
+- [ ] **Step 3: Write the test map**
 
 ```json
 {
@@ -206,7 +206,7 @@ import { Qux } from '../core/router/RouterService';
 }
 ```
 
-- [ ] **Step 4：写 test runner（用 spawnSync 数组形式，无 shell）**
+- [ ] **Step 4: Write the test runner (use spawnSync array form, no shell)**
 
 ```javascript
 // scripts/test-rewrite/run-test.mjs
@@ -242,24 +242,24 @@ try {
 }
 ```
 
-- [ ] **Step 5：跑测试**
+- [ ] **Step 5: Run the test**
 
 ```bash
 node scripts/test-rewrite/run-test.mjs
 ```
 
-Expected output: `Files changed: 1`，`Imports rewritten: 3`，`OK`
+Expected output: `Files changed: 1`, `Imports rewritten: 3`, `OK`
 
-- [ ] **Step 6：Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add scripts/test-rewrite/
 git commit -m "chore(scripts): add codemod self-test fixture"
 ```
 
-### Task 0.3：建立 NAPI ABI baseline
+### Task 0.3: Establish NAPI ABI baseline
 
-- [ ] **Step 1：保存当前 NAPI import 快照**
+- [ ] **Step 1: Save current NAPI import snapshot**
 
 ```bash
 mkdir -p .refactor-snapshots
@@ -267,17 +267,17 @@ grep -rn "from 'lib.*\.so'" entry/src/main/ets/ | sort > .refactor-snapshots/nap
 wc -l .refactor-snapshots/napi-baseline.txt
 ```
 
-Expected: 显示当前所有 NAPI `.so` import 行数
+Expected: shows the current total count of NAPI `.so` import lines
 
-- [ ] **Step 2：把 .refactor-snapshots/ 加入 gitignore**
+- [ ] **Step 2: Add .refactor-snapshots/ to gitignore**
 
-打开 `.gitignore`，在末尾追加一行：
+Open `.gitignore` and append at the end:
 
 ```
 .refactor-snapshots/
 ```
 
-- [ ] **Step 3：Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add .gitignore
@@ -286,23 +286,23 @@ git commit -m "chore: gitignore .refactor-snapshots/"
 
 ---
 
-# PR-1：Model 单一源 + 消灭 .ts 残留
+# PR-1: Single-source model + eliminate .ts residue
 
-**目标产出：** ets/ 内 0 个 `.ts` 文件；`model/Book.ets` 为唯一 Book schema；hvigor build pass；Hypium 全套 pass。
+**Target output:** 0 `.ts` files under ets/; `model/Book.ets` as the only Book schema; hvigor build pass; full Hypium pass.
 
-**分支：** `git checkout -b refactor/pr1-model-unify`
+**Branch:** `git checkout -b refactor/pr1-model-unify`
 
-### Task 1.1：合并 Book.ets schema
+### Task 1.1: Merge Book.ets schema
 
 **Files:**
 - Modify: `entry/src/main/ets/model/Book.ets`
 
-- [ ] **Step 1：以下面内容完全覆写 `entry/src/main/ets/model/Book.ets`**
+- [ ] **Step 1: Overwrite `entry/src/main/ets/model/Book.ets` entirely with the content below**
 
 ```typescript
 /**
- * Book domain model — 单一源（合并自历史的 Book.ts + Book.ets）。
- * 字段对齐 server-cn /api/v1/books DTO，保留海外 mobile 端的产品字段为 optional。
+ * Book domain model — single source (merged from historical Book.ts + Book.ets).
+ * Fields aligned with server-cn /api/v1/books DTO; product fields from overseas mobile kept as optional.
  */
 
 export type BookStatus = 'want-to-read' | 'reading' | 'finished';
@@ -436,71 +436,71 @@ export interface Rating {
 }
 ```
 
-- [ ] **Step 2：删除 Book.ts**
+- [ ] **Step 2: Delete Book.ts**
 
 ```bash
 git rm entry/src/main/ets/model/Book.ts
 ```
 
-### Task 1.2：扫描 Book required 字段调用点并补守卫
+### Task 1.2: Scan Book required-field call sites and add guards
 
-**Files:** 所有引用受影响字段的 `.ets` 文件
+**Files:** every `.ets` file that references the affected fields
 
-- [ ] **Step 1：枚举调用点**
+- [ ] **Step 1: Enumerate call sites**
 
 ```bash
 grep -rn "book\.\(coverUrl\|description\|category\|wordCount\)" entry/src/main/ets --include="*.ets" > /tmp/book-required-uses.txt
 cat /tmp/book-required-uses.txt
 ```
 
-- [ ] **Step 2：按场景手工补守卫**
+- [ ] **Step 2: Manually add scenario-appropriate guards**
 
-对每个调用点按下表替换：
+For each call site, substitute per the table below:
 
-| 原写法 | 替换为 |
+| Original | Replace with |
 |---|---|
-| `book.coverUrl` （字符串赋值/Image src） | `book.coverUrl ?? ''` |
+| `book.coverUrl` (string assignment / Image src) | `book.coverUrl ?? ''` |
 | `book.coverUrl.length > 0` | `(book.coverUrl?.length ?? 0) > 0` |
 | `book.coverUrl.startsWith('http')` | `book.coverUrl?.startsWith('http') === true` |
 | `book.description` | `book.description ?? ''` |
-| `book.category` | `book.category ?? '其他'` |
+| `book.category` | `book.category ?? 'Other'` |
 | `book.wordCount > 0` | `(book.wordCount ?? 0) > 0` |
-| `book.wordCount` （展示用） | `book.wordCount ?? 0` |
+| `book.wordCount` (display) | `book.wordCount ?? 0` |
 
-- [ ] **Step 3：再次 grep 验证无遗漏**
+- [ ] **Step 3: Re-grep to verify no omissions**
 
 ```bash
 grep -rn "book\.\(coverUrl\|description\|category\|wordCount\)\b" entry/src/main/ets --include="*.ets" | grep -v "?? \|?\."
 ```
 
-Expected: 空
+Expected: empty
 
-### Task 1.3：转换 Audiobook.ts → Audiobook.ets
+### Task 1.3: Convert Audiobook.ts → Audiobook.ets
 
-- [ ] **Step 1：git mv**
+- [ ] **Step 1: git mv**
 
 ```bash
 git mv entry/src/main/ets/model/Audiobook.ts entry/src/main/ets/model/Audiobook.ets
 ```
 
-- [ ] **Step 2：检查 ArkTS 语法兼容性**
+- [ ] **Step 2: Check ArkTS syntax compatibility**
 
-打开 `entry/src/main/ets/model/Audiobook.ets`，确认：
-- 无 `import type` 语句（如有，改为 `import`）
-- 所有 interface 字段类型不含 `any`
-- `export const PLAYBACK_SPEEDS` 等定义在使用之前
+Open `entry/src/main/ets/model/Audiobook.ets` and confirm:
+- No `import type` statements (if any, change to `import`)
+- All interface field types contain no `any`
+- `export const PLAYBACK_SPEEDS` and similar definitions appear before they are used
 
-### Task 1.4：转换 AudioPlayerStore.ts → AudioPlayerStore.ets
+### Task 1.4: Convert AudioPlayerStore.ts → AudioPlayerStore.ets
 
-- [ ] **Step 1：git mv**
+- [ ] **Step 1: git mv**
 
 ```bash
 git mv entry/src/main/ets/store/AudioPlayerStore.ts entry/src/main/ets/store/AudioPlayerStore.ets
 ```
 
-- [ ] **Step 2：把 `import type` 改为 `import`**
+- [ ] **Step 2: Change `import type` to `import`**
 
-打开文件，把：
+Open the file and change:
 
 ```typescript
 import type {
@@ -512,7 +512,7 @@ import type {
 } from '../model/Audiobook';
 ```
 
-改为：
+to:
 
 ```typescript
 import {
@@ -524,29 +524,29 @@ import {
 } from '../model/Audiobook';
 ```
 
-- [ ] **Step 3：抽出 listener 命名类型**
+- [ ] **Step 3: Extract a named listener type**
 
-在文件顶部 import 之后插入：
+Insert right after the top-of-file imports:
 
 ```typescript
 export type AudioPlayerStateListener = (state: AudioPlayerStore) => void;
 ```
 
-把：
+Change:
 
 ```typescript
 private onStateChangeCallbacks: Array<(state: AudioPlayerStore) => void> = [];
 ```
 
-改为：
+to:
 
 ```typescript
 private onStateChangeCallbacks: AudioPlayerStateListener[] = [];
 ```
 
-把 `subscribe(callback)` 的签名同步改为 `subscribe(callback: AudioPlayerStateListener): () => void`。
+Update the `subscribe(callback)` signature similarly to `subscribe(callback: AudioPlayerStateListener): () => void`.
 
-- [ ] **Step 4：追加 Phase 2 followup 注释（文件末尾）**
+- [ ] **Step 4: Append a Phase 2 follow-up comment (end of file)**
 
 ```typescript
 // PHASE 2 FOLLOWUP: replace callback subscribe with @ObservedV2 + @Trace decorators
@@ -555,12 +555,12 @@ private onStateChangeCallbacks: AudioPlayerStateListener[] = [];
 // upstream wrappers. See docs/specs/2026-05-17-harmony-app-feature-first-design.md §8.
 ```
 
-### Task 1.5：创建 model/index.ets barrel
+### Task 1.5: Create the model/index.ets barrel
 
 **Files:**
 - Create: `entry/src/main/ets/model/index.ets`
 
-- [ ] **Step 1：写 barrel**
+- [ ] **Step 1: Write the barrel**
 
 ```typescript
 // entry/src/main/ets/model/index.ets
@@ -572,12 +572,12 @@ export * from './Highlight';
 export * from './ExplainData';
 ```
 
-### Task 1.6：写 PR-1 的 rewrite-map 并跑 codemod
+### Task 1.6: Write PR-1 rewrite-map and run the codemod
 
 **Files:**
 - Create: `scripts/rewrite-map-pr1.json`
 
-- [ ] **Step 1：写映射文件**
+- [ ] **Step 1: Write the mapping file**
 
 ```json
 {
@@ -590,15 +590,15 @@ export * from './ExplainData';
 }
 ```
 
-注：ArkTS import 默认不带后缀，所以重写规则是把 `.ts` 后缀剥掉。保险起见跑一遍。
+Note: ArkTS imports default to no suffix, so the rewrite rule strips the `.ts` suffix. Run it as a safety net.
 
-- [ ] **Step 2：跑 codemod**
+- [ ] **Step 2: Run the codemod**
 
 ```bash
 node scripts/rewrite-imports.mjs scripts/rewrite-map-pr1.json
 ```
 
-- [ ] **Step 3：手工 grep 残留 .ts 后缀引用**
+- [ ] **Step 3: Manually grep for any `.ts` suffix residue**
 
 ```bash
 grep -rn "from '.*Book\.ts'" entry/src/main/ets --include="*.ets"
@@ -606,17 +606,17 @@ grep -rn "from '.*Audiobook\.ts'" entry/src/main/ets --include="*.ets"
 grep -rn "from '.*AudioPlayerStore\.ts'" entry/src/main/ets --include="*.ets"
 ```
 
-Expected: 0 命中
+Expected: 0 hits
 
-### Task 1.7：跑 VERIFY 套件
+### Task 1.7: Run the VERIFY suite
 
-- [ ] **Step 1：保存 NAPI baseline 到 /tmp**
+- [ ] **Step 1: Save NAPI baseline to /tmp**
 
 ```bash
 cp .refactor-snapshots/napi-baseline.txt /tmp/napi-before.txt
 ```
 
-- [ ] **Step 2：清理 + 重建**
+- [ ] **Step 2: Clean + rebuild**
 
 ```bash
 rm -rf build oh_modules
@@ -627,15 +627,15 @@ hvigor assembleHap
 
 Expected: `BUILD SUCCESSFUL`
 
-- [ ] **Step 3：Hypium 单测**
+- [ ] **Step 3: Hypium unit tests**
 
 ```bash
 hvigor test
 ```
 
-Expected: 所有 test pass
+Expected: all tests pass
 
-- [ ] **Step 4：.ts 残留检查**
+- [ ] **Step 4: .ts residue check**
 
 ```bash
 find entry/src/main/ets -name "*.ts" | wc -l
@@ -643,22 +643,22 @@ find entry/src/main/ets -name "*.ts" | wc -l
 
 Expected: `0`
 
-- [ ] **Step 5：NAPI ABI diff**
+- [ ] **Step 5: NAPI ABI diff**
 
 ```bash
 grep -rn "from 'lib.*\.so'" entry/src/main/ets/ | sort > /tmp/napi-after.txt
 diff /tmp/napi-before.txt /tmp/napi-after.txt
 ```
 
-Expected: 空
+Expected: empty
 
-- [ ] **Step 6：真机 smoke**
+- [ ] **Step 6: Real-device smoke**
 
-DevEco Studio 部署到真机，验证冷启动 + 5 主 tab 切换 + 打开任意一本书进 Reader 不崩。
+Deploy to a real device via DevEco Studio; verify cold start + 5-main-tab switching + opening any book into Reader without crash.
 
-### Task 1.8：Squash 提交 + push + MR
+### Task 1.8: Squash commit + push + MR
 
-- [ ] **Step 1：合并为单个 commit**
+- [ ] **Step 1: Squash into a single commit**
 
 ```bash
 git add -A
@@ -680,43 +680,43 @@ Verification:
 - 5-tab smoke OK on real device"
 ```
 
-- [ ] **Step 2：push 并开 MR**
+- [ ] **Step 2: Push and open MR**
 
 ```bash
 git push -u origin refactor/pr1-model-unify
 ```
 
-在 Gitee 上开 MR，标题：`PR-1: Model unification & .ts residue elimination`。
+On Gitee, open MR titled: `PR-1: Model unification & .ts residue elimination`.
 
-- [ ] **Step 3：合并后观察 24h 再开 PR-2**（per spec §7.3 防护）
+- [ ] **Step 3: Wait 24h after merge before opening PR-2** (per spec §7.3 safeguard)
 
 ---
 
-# PR-2：core/ 底座 + 跨切 service 下沉
+# PR-2: core/ foundation + cross-cutting service sink
 
-**目标产出：** `core/` 顶层建立，9 个跨切 service 下沉，6 个原横向目录搬入；hvigor build pass。
+**Target output:** `core/` top-level established; 9 cross-cutting services sunk; 6 original horizontal directories moved in; hvigor build pass.
 
-**分支：** `git checkout main && git pull && git checkout -b refactor/pr2-core-foundation`
+**Branch:** `git checkout main && git pull && git checkout -b refactor/pr2-core-foundation`
 
-### Task 2.1：grep 确认 RouterAdapter 0 引用
+### Task 2.1: grep to confirm 0 RouterAdapter references
 
-- [ ] **Step 1：搜索引用**
+- [ ] **Step 1: Search references**
 
 ```bash
 grep -rn "RouterAdapter" entry/src/main/ets --include="*.ets"
 ```
 
-Expected: 0 命中，或仅 router/RouterAdapter.ets 自身定义。如有外部引用，本任务暂停，先消除引用。
+Expected: 0 hits, or only the self-definition in router/RouterAdapter.ets. If external references exist, pause this task and eliminate them first.
 
-### Task 2.2：搬 6 个原横向目录到 core/
+### Task 2.2: Move the 6 original horizontal directories into core/
 
-- [ ] **Step 1：建 core 顶层**
+- [ ] **Step 1: Create core top level**
 
 ```bash
 mkdir -p entry/src/main/ets/core
 ```
 
-- [ ] **Step 2：git mv 6 个目录**
+- [ ] **Step 2: git mv the 6 directories**
 
 ```bash
 git mv entry/src/main/ets/router entry/src/main/ets/core/router
@@ -727,15 +727,15 @@ git mv entry/src/main/ets/theme entry/src/main/ets/core/theme
 git mv entry/src/main/ets/extensions entry/src/main/ets/core/extensions
 ```
 
-- [ ] **Step 3：删除 RouterAdapter（若 Task 2.1 确认 0 引用）**
+- [ ] **Step 3: Delete RouterAdapter (if Task 2.1 confirmed 0 references)**
 
 ```bash
 git rm entry/src/main/ets/core/router/RouterAdapter.ets
 ```
 
-### Task 2.3：搬 9 个跨切 service 子目录到 core/
+### Task 2.3: Move the 9 cross-cutting service subdirectories into core/
 
-- [ ] **Step 1：git mv 8 个独立子目录**
+- [ ] **Step 1: git mv 8 independent subdirectories**
 
 ```bash
 git mv entry/src/main/ets/service/cache entry/src/main/ets/core/cache
@@ -748,37 +748,37 @@ git mv entry/src/main/ets/service/dynamic entry/src/main/ets/core/dynamic
 git mv entry/src/main/ets/service/atomic entry/src/main/ets/core/atomic
 ```
 
-- [ ] **Step 2：合并 service/storage 到 core/persistence**
+- [ ] **Step 2: Merge service/storage into core/persistence**
 
 ```bash
 ls entry/src/main/ets/service/storage/
 ```
 
-如只有 `Storage.ets`：
+If only `Storage.ets` is present:
 
 ```bash
 git mv entry/src/main/ets/service/storage/Storage.ets entry/src/main/ets/core/persistence/Storage.ets
 rmdir entry/src/main/ets/service/storage
 ```
 
-如有文件名冲突，先 rename 再 mv。
+On filename conflict, rename first then move.
 
-### Task 2.4：搬 Index.ets 到 core/shell/
+### Task 2.4: Move Index.ets into core/shell/
 
-- [ ] **Step 1：建目录 + mv**
+- [ ] **Step 1: Create directory + mv**
 
 ```bash
 mkdir -p entry/src/main/ets/core/shell
 git mv entry/src/main/ets/pages/Index.ets entry/src/main/ets/core/shell/Index.ets
 ```
 
-- [ ] **Step 2：更新 `entry/src/main/module.json5`**
+- [ ] **Step 2: Update `entry/src/main/module.json5`**
 
-打开 module.json5。如果 `pages` 字段指向 profile（如 `"$profile:main_pages"`），打开对应的 `entry/src/main/resources/base/profile/main_pages.json`，把 `"pages/Index"` 改为 `"core/shell/Index"`。
+Open module.json5. If the `pages` field points to a profile (e.g. `"$profile:main_pages"`), open the corresponding `entry/src/main/resources/base/profile/main_pages.json` and change `"pages/Index"` to `"core/shell/Index"`.
 
-### Task 2.5：写 PR-2 rewrite-map 并跑 codemod
+### Task 2.5: Write PR-2 rewrite-map and run the codemod
 
-- [ ] **Step 1：写 `scripts/rewrite-map-pr2.json`**
+- [ ] **Step 1: Write `scripts/rewrite-map-pr2.json`**
 
 ```json
 {
@@ -804,28 +804,28 @@ git mv entry/src/main/ets/pages/Index.ets entry/src/main/ets/core/shell/Index.et
 }
 ```
 
-**Note：** codemod 仅做名字替换，**不修正 `../` 层级数量**。引用方层级变化导致的相对路径错误，靠 build 报错定位后手工修。
+**Note:** the codemod only does name substitution; **it does not correct `../` level counts**. Wrong relative-path levels due to caller location changes are located via build errors and fixed by hand.
 
-- [ ] **Step 2：跑 codemod**
+- [ ] **Step 2: Run the codemod**
 
 ```bash
 node scripts/rewrite-imports.mjs scripts/rewrite-map-pr2.json
 ```
 
-- [ ] **Step 3：hvigor build 收集失败的 import**
+- [ ] **Step 3: hvigor build to collect failing imports**
 
 ```bash
 hvigor clean
 hvigor assembleHap 2>&1 | tee /tmp/build-pr2.log | grep -i "Cannot find\|not found\|module" | head -50
 ```
 
-- [ ] **Step 4：按报错逐条手工修相对路径前缀**
+- [ ] **Step 4: Manually fix relative-path prefixes one error at a time**
 
-每个错误指向一个 import path 的相对层级问题。打开报错文件，调整 `../` 数量。
+Each error points at a relative-import level issue. Open the file with the error and adjust the `../` count.
 
-### Task 2.6：跑 VERIFY 套件
+### Task 2.6: Run the VERIFY suite
 
-- [ ] **Step 1：完整重建**
+- [ ] **Step 1: Full rebuild**
 
 ```bash
 rm -rf build oh_modules
@@ -836,13 +836,13 @@ hvigor assembleHap
 
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 2：Hypium 单测**
+- [ ] **Step 2: Hypium unit tests**
 
 ```bash
 hvigor test
 ```
 
-- [ ] **Step 3：结构断言**
+- [ ] **Step 3: Structural assertion**
 
 ```bash
 for d in router native persistence widget theme extensions; do
@@ -851,20 +851,20 @@ done
 ls entry/src/main/ets/core/
 ```
 
-Expected: 全 OK，core/ 下约 15-16 个子目录
+Expected: all OK; about 15–16 subdirectories under core/
 
-- [ ] **Step 4：NAPI ABI diff**
+- [ ] **Step 4: NAPI ABI diff**
 
 ```bash
 grep -rn "from 'lib.*\.so'" entry/src/main/ets/ | sort > /tmp/napi-after-pr2.txt
 diff .refactor-snapshots/napi-baseline.txt /tmp/napi-after-pr2.txt
 ```
 
-Expected: 空
+Expected: empty
 
-- [ ] **Step 5：真机 smoke**（5 主 tab + 一次 Reader 开书）
+- [ ] **Step 5: Real-device smoke** (5 main tabs + opening a book once)
 
-### Task 2.7：Commit + push + MR
+### Task 2.7: Commit + push + MR
 
 ```bash
 git add -A
@@ -883,21 +883,21 @@ git push -u origin refactor/pr2-core-foundation
 
 ---
 
-# PR-3：ui/ + api/ 重排
+# PR-3: ui/ + api/ reshuffle
 
-**目标产出：** components/ 和 service/api/ 顶层平铺消失；ui/ 4 子目录 + api/ 业务域分包建立；hvigor build pass。
+**Target output:** the top-level `components/` and `service/api/` flat layouts disappear; `ui/` 4 subdirectories + `api/` business-domain split established; hvigor build pass.
 
-**分支：** `git checkout main && git pull && git checkout -b refactor/pr3-ui-api`
+**Branch:** `git checkout main && git pull && git checkout -b refactor/pr3-ui-api`
 
-### Task 3.1：components/ → ui/ 重分类
+### Task 3.1: components/ → ui/ reclassification
 
-- [ ] **Step 1：建 ui/ 4 子目录**
+- [ ] **Step 1: Create the 4 ui/ subdirectories**
 
 ```bash
 mkdir -p entry/src/main/ets/ui/primitives entry/src/main/ets/ui/responsive entry/src/main/ets/ui/lazy entry/src/main/ets/ui/sheets
 ```
 
-- [ ] **Step 2：搬 primitives**
+- [ ] **Step 2: Move primitives**
 
 ```bash
 for f in Button Card Input List Tab Toast Modal Loading EmptyState; do
@@ -905,7 +905,7 @@ for f in Button Card Input List Tab Toast Modal Loading EmptyState; do
 done
 ```
 
-- [ ] **Step 3：搬 responsive**
+- [ ] **Step 3: Move responsive**
 
 ```bash
 git mv entry/src/main/ets/components/responsive/AdaptiveGrid.ets entry/src/main/ets/ui/responsive/AdaptiveGrid.ets
@@ -914,30 +914,30 @@ git mv entry/src/main/ets/components/responsive/ResponsiveContainer.ets entry/sr
 rmdir entry/src/main/ets/components/responsive
 ```
 
-- [ ] **Step 4：搬 lazy**
+- [ ] **Step 4: Move lazy**
 
 ```bash
 git mv entry/src/main/ets/components/optimized/LazyImage.ets entry/src/main/ets/ui/lazy/LazyImage.ets
 rmdir entry/src/main/ets/components/optimized
 ```
 
-- [ ] **Step 5：删除 components/index.ets barrel**
+- [ ] **Step 5: Delete the components/index.ets barrel**
 
 ```bash
 git rm entry/src/main/ets/components/index.ets
 ```
 
-Feature-local components（BilingualReader / VocabDetailSheet / 等）暂留在 `components/` 顶层；PR-4/5/6 内迁。
+Feature-local components (BilingualReader / VocabDetailSheet / etc.) remain at the top of `components/` for now; they will be moved in PR-4/5/6.
 
-### Task 3.2：service/api/ → api/ 业务域分包
+### Task 3.2: service/api/ → api/ business-domain split
 
-- [ ] **Step 1：建 api/ 业务域子目录**
+- [ ] **Step 1: Create the api/ business-domain subdirectories**
 
 ```bash
 mkdir -p entry/src/main/ets/api/client entry/src/main/ets/api/books entry/src/main/ets/api/auth entry/src/main/ets/api/reading entry/src/main/ets/api/ai entry/src/main/ets/api/notes entry/src/main/ets/api/study entry/src/main/ets/api/subscription entry/src/main/ets/api/support entry/src/main/ets/api/widget
 ```
 
-- [ ] **Step 2：搬 11 个 Api 文件**
+- [ ] **Step 2: Move the 11 Api files**
 
 ```bash
 git mv entry/src/main/ets/service/api/BooksApi.ets entry/src/main/ets/api/books/BooksApi.ets
@@ -954,17 +954,17 @@ git mv entry/src/main/ets/service/api/WidgetApi.ets entry/src/main/ets/api/widge
 rmdir entry/src/main/ets/service/api
 ```
 
-### Task 3.3：HttpClient 抽取（仅当当前散落）
+### Task 3.3: HttpClient extraction (only if currently scattered)
 
-- [ ] **Step 1：检查是否已有统一 HttpClient**
+- [ ] **Step 1: Check whether a unified HttpClient already exists**
 
 ```bash
 grep -rn "class HttpClient\|http.createHttp\|@ohos\.net\.http" entry/src/main/ets/api --include="*.ets"
 ```
 
-- [ ] **Step 2：如各 Api 各自 new http.createHttp()，抽出公共 client**
+- [ ] **Step 2: If each Api calls `new http.createHttp()` itself, extract a common client**
 
-创建 `entry/src/main/ets/api/client/HttpClient.ets`：
+Create `entry/src/main/ets/api/client/HttpClient.ets`:
 
 ```typescript
 import http from '@ohos.net.http';
@@ -1014,13 +1014,13 @@ export class HttpClient {
 }
 ```
 
-具体实现以现有风格为准。若已存在统一 client，直接 mv 进 `api/client/`。
+Adopt the existing style for the concrete implementation. If a unified client already exists, move it directly into `api/client/`.
 
-- [ ] **Step 3：如本 PR 时间不够抽取，留 TODO 到 PR-7**
+- [ ] **Step 3: If extraction won't fit this PR's time budget, leave a TODO for PR-7**
 
-### Task 3.4：写 PR-3 rewrite-map 并跑 codemod
+### Task 3.4: Write PR-3 rewrite-map and run the codemod
 
-- [ ] **Step 1：写 `scripts/rewrite-map-pr3.json`**
+- [ ] **Step 1: Write `scripts/rewrite-map-pr3.json`**
 
 ```json
 {
@@ -1044,15 +1044,15 @@ export class HttpClient {
 }
 ```
 
-- [ ] **Step 2：跑 codemod**
+- [ ] **Step 2: Run the codemod**
 
 ```bash
 node scripts/rewrite-imports.mjs scripts/rewrite-map-pr3.json
 ```
 
-- [ ] **Step 3：build + 修相对路径**（同 PR-2 流程）
+- [ ] **Step 3: build + fix relative paths** (same flow as PR-2)
 
-### Task 3.5：跑 VERIFY 套件 + commit + push + MR
+### Task 3.5: Run VERIFY suite + commit + push + MR
 
 ```bash
 git add -A
@@ -1068,13 +1068,13 @@ git push -u origin refactor/pr3-ui-api
 
 ---
 
-# PR-4：features 批一（reader / library / audiobook / vocab）
+# PR-4: features batch 1 (reader / library / audiobook / vocab)
 
-**目标产出：** 4 个核心 feature 内迁完成；features/ 顶层建立；service/tts 删除。
+**Target output:** 4 core features migrated; features/ top level established; service/tts deleted.
 
-**分支：** `git checkout main && git pull && git checkout -b refactor/pr4-features-core`
+**Branch:** `git checkout main && git pull && git checkout -b refactor/pr4-features-core`
 
-### Task 4.1：建 features/ 顶层结构
+### Task 4.1: Build features/ top-level structure
 
 ```bash
 mkdir -p entry/src/main/ets/features/reader/pages entry/src/main/ets/features/reader/components entry/src/main/ets/features/reader/service
@@ -1083,9 +1083,9 @@ mkdir -p entry/src/main/ets/features/audiobook/pages entry/src/main/ets/features
 mkdir -p entry/src/main/ets/features/vocab/pages entry/src/main/ets/features/vocab/components
 ```
 
-### Task 4.2：搬 reader feature
+### Task 4.2: Migrate the reader feature
 
-- [ ] **Step 1：mv 文件**
+- [ ] **Step 1: mv files**
 
 ```bash
 git mv entry/src/main/ets/pages/Reader.ets entry/src/main/ets/features/reader/pages/Reader.ets
@@ -1098,7 +1098,7 @@ git mv entry/src/main/ets/components/ReaderSettingsSheet.ets entry/src/main/ets/
 git mv entry/src/main/ets/components/NoteEditorSheet.ets entry/src/main/ets/features/reader/components/NoteEditorSheet.ets
 ```
 
-- [ ] **Step 2：写 features/reader/index.ets barrel**
+- [ ] **Step 2: Write features/reader/index.ets barrel**
 
 ```typescript
 // entry/src/main/ets/features/reader/index.ets
@@ -1112,19 +1112,19 @@ export * from './components/ReaderSettingsSheet';
 export * from './components/NoteEditorSheet';
 ```
 
-### Task 4.3：搬 library feature
+### Task 4.3: Migrate the library feature
 
 ```bash
 git mv entry/src/main/ets/pages/Library.ets entry/src/main/ets/features/library/pages/Library.ets
 ```
 
-写 `entry/src/main/ets/features/library/index.ets`：
+Write `entry/src/main/ets/features/library/index.ets`:
 
 ```typescript
 export * from './pages/Library';
 ```
 
-### Task 4.4：搬 audiobook feature（含 service/tts）
+### Task 4.4: Migrate the audiobook feature (including service/tts)
 
 ```bash
 git mv entry/src/main/ets/pages/AudiobookPlayer.ets entry/src/main/ets/features/audiobook/pages/AudiobookPlayer.ets
@@ -1132,7 +1132,7 @@ git mv entry/src/main/ets/pages/AudiobookTab.ets entry/src/main/ets/features/aud
 git mv entry/src/main/ets/components/SsmlBuilder.ets entry/src/main/ets/features/audiobook/components/SsmlBuilder.ets
 ```
 
-搬 service/tts（用 `find ... -exec git mv`）：
+Move service/tts (use `find ... -exec git mv`):
 
 ```bash
 for f in entry/src/main/ets/service/tts/*; do
@@ -1142,9 +1142,9 @@ done
 rmdir entry/src/main/ets/service/tts
 ```
 
-写 audiobook barrel。
+Write the audiobook barrel.
 
-### Task 4.5：搬 vocab feature
+### Task 4.5: Migrate the vocab feature
 
 ```bash
 git mv entry/src/main/ets/pages/Vocab.ets entry/src/main/ets/features/vocab/pages/Vocab.ets
@@ -1155,11 +1155,11 @@ git mv entry/src/main/ets/pages/WordFamily.ets entry/src/main/ets/features/vocab
 git mv entry/src/main/ets/components/VocabDetailSheet.ets entry/src/main/ets/features/vocab/components/VocabDetailSheet.ets
 ```
 
-写 vocab barrel。
+Write the vocab barrel.
 
-### Task 4.6：写 PR-4 rewrite-map + 跑 codemod
+### Task 4.6: Write PR-4 rewrite-map + run codemod
 
-- [ ] **Step 1：写 `scripts/rewrite-map-pr4.json`**
+- [ ] **Step 1: Write `scripts/rewrite-map-pr4.json`**
 
 ```json
 {
@@ -1188,11 +1188,11 @@ git mv entry/src/main/ets/components/VocabDetailSheet.ets entry/src/main/ets/fea
 }
 ```
 
-- [ ] **Step 2：跑 codemod + 修相对路径**
+- [ ] **Step 2: Run codemod + fix relative paths**
 
-### Task 4.7：更新 RouteConstants
+### Task 4.7: Update RouteConstants
 
-打开 `entry/src/main/ets/core/router/RouteConstants.ets`。把 `ROUTE_*` 常量值从 `pages/X` 改为 `features/<feature>/pages/X`。具体常量列表以现有代码为准。例如：
+Open `entry/src/main/ets/core/router/RouteConstants.ets`. Change `ROUTE_*` constant values from `pages/X` to `features/<feature>/pages/X`. The specific constant list depends on the existing code. For example:
 
 ```typescript
 export const ROUTE_READER = 'features/reader/pages/Reader';
@@ -1206,16 +1206,16 @@ export const ROUTE_WORD_ASSOCIATION = 'features/vocab/pages/WordAssociation';
 export const ROUTE_WORD_FAMILY = 'features/vocab/pages/WordFamily';
 ```
 
-### Task 4.8：更新 module.json5 pages list
+### Task 4.8: Update module.json5 pages list
 
-`entry/src/main/resources/base/profile/main_pages.json`（或 module.json5 内联）的 pages 路径全部更新为新位置。
+Update every page path in `entry/src/main/resources/base/profile/main_pages.json` (or the inlined module.json5) to its new location.
 
-### Task 4.9：跑 VERIFY 套件 + commit + push + MR
+### Task 4.9: Run VERIFY suite + commit + push + MR
 
-Smoke 测试重点：
-- 打开任意一本书进入 Reader 不崩
-- AudiobookPlayer 加载不崩
-- Vocab / FlashcardSession 单词卡操作不崩
+Smoke test focus:
+- Open any book into Reader without crash
+- AudiobookPlayer loads without crash
+- Vocab / FlashcardSession card operations without crash
 
 ```bash
 git add -A
@@ -1232,13 +1232,13 @@ git push -u origin refactor/pr4-features-core
 
 ---
 
-# PR-5：features 批二（ai-tools / account / study / discover / notes）
+# PR-5: features batch 2 (ai-tools / account / study / discover / notes)
 
-**目标产出：** 5 个 feature 内迁；service/{llm, translation, payment, subscription} 删除。
+**Target output:** 5 features migrated; service/{llm, translation, payment, subscription} deleted.
 
-**分支：** `git checkout main && git pull && git checkout -b refactor/pr5-features-learning`
+**Branch:** `git checkout main && git pull && git checkout -b refactor/pr5-features-learning`
 
-### Task 5.1：建 5 个 feature 顶层
+### Task 5.1: Build the 5 feature top-levels
 
 ```bash
 mkdir -p entry/src/main/ets/features/ai-tools/pages entry/src/main/ets/features/ai-tools/components entry/src/main/ets/features/ai-tools/service
@@ -1248,7 +1248,7 @@ mkdir -p entry/src/main/ets/features/discover/pages
 mkdir -p entry/src/main/ets/features/notes/pages
 ```
 
-### Task 5.2：搬 ai-tools
+### Task 5.2: Migrate ai-tools
 
 ```bash
 git mv entry/src/main/ets/pages/ReadingComprehension.ets entry/src/main/ets/features/ai-tools/pages/ReadingComprehension.ets
@@ -1257,7 +1257,7 @@ git mv entry/src/main/ets/components/AiContentBadge.ets entry/src/main/ets/featu
 git mv entry/src/main/ets/components/ExplainCard.ets entry/src/main/ets/features/ai-tools/components/ExplainCard.ets
 git mv entry/src/main/ets/components/WordExplainSheet.ets entry/src/main/ets/features/ai-tools/components/WordExplainSheet.ets
 
-# service/llm 和 service/translation 各只 1 文件
+# service/llm and service/translation contain 1 file each
 for f in entry/src/main/ets/service/llm/*; do
   name=$(basename "$f")
   git mv "$f" "entry/src/main/ets/features/ai-tools/service/$name"
@@ -1271,9 +1271,9 @@ done
 rmdir entry/src/main/ets/service/translation
 ```
 
-写 ai-tools barrel。
+Write the ai-tools barrel.
 
-### Task 5.3：搬 account（含 payment + subscription service）
+### Task 5.3: Migrate account (with payment + subscription service)
 
 ```bash
 git mv entry/src/main/ets/pages/Login.ets entry/src/main/ets/features/account/pages/Login.ets
@@ -1299,9 +1299,9 @@ done
 rmdir entry/src/main/ets/service/subscription
 ```
 
-写 account barrel。
+Write the account barrel.
 
-### Task 5.4：搬 study / discover / notes
+### Task 5.4: Migrate study / discover / notes
 
 ```bash
 git mv entry/src/main/ets/pages/StudyPlan.ets entry/src/main/ets/features/study/pages/StudyPlan.ets
@@ -1309,17 +1309,17 @@ git mv entry/src/main/ets/pages/Discover.ets entry/src/main/ets/features/discove
 git mv entry/src/main/ets/pages/Notes.ets entry/src/main/ets/features/notes/pages/Notes.ets
 ```
 
-写各自 barrel（一行 `export * from './pages/X';`）。
+Write each barrel (a one-liner `export * from './pages/X';`).
 
-### Task 5.5：写 PR-5 rewrite-map + 跑 codemod + 修相对路径
+### Task 5.5: Write PR-5 rewrite-map + run codemod + fix relative paths
 
-`scripts/rewrite-map-pr5.json` 详列上述每个 mv 的源/目标。结构同 PR-4 map。
+`scripts/rewrite-map-pr5.json` lists every source/target for the mv operations above. Structure mirrors the PR-4 map.
 
-### Task 5.6：更新 RouteConstants + module.json5 pages
+### Task 5.6: Update RouteConstants + module.json5 pages
 
-新增对应 feature 路径。
+Add paths for the new features.
 
-### Task 5.7：VERIFY + commit + push + MR
+### Task 5.7: VERIFY + commit + push + MR
 
 ```bash
 git add -A
@@ -1335,13 +1335,13 @@ git push -u origin refactor/pr5-features-learning
 
 ---
 
-# PR-6：features 批三（support / admin / notification / multi-device / multi-platform / dev）
+# PR-6: features batch 3 (support / admin / notification / multi-device / multi-platform / dev)
 
-**目标产出：** 6 个 feature 内迁；service/ 顶层完全清空并删除；旧 pages/ 多端子目录清空并删除；dev 在 release build 中被排除。
+**Target output:** 6 features migrated; the top-level service/ is completely emptied and deleted; the old pages/ multi-surface subdirectories are emptied and deleted; dev is excluded from release builds.
 
-**分支：** `git checkout main && git pull && git checkout -b refactor/pr6-features-periphery`
+**Branch:** `git checkout main && git pull && git checkout -b refactor/pr6-features-periphery`
 
-### Task 6.1：建 6 个 feature 顶层
+### Task 6.1: Build the 6 feature top-levels
 
 ```bash
 mkdir -p entry/src/main/ets/features/support/pages
@@ -1352,7 +1352,7 @@ mkdir -p entry/src/main/ets/features/multi-platform/pages entry/src/main/ets/fea
 mkdir -p entry/src/main/ets/features/dev/pages
 ```
 
-### Task 6.2：搬 support（8 pages）
+### Task 6.2: Migrate support (8 pages)
 
 ```bash
 for f in Faq Feedback TicketList TicketDetail PrivacyPolicy UserAgreement About OssLicenses; do
@@ -1360,7 +1360,7 @@ for f in Faq Feedback TicketList TicketDetail PrivacyPolicy UserAgreement About 
 done
 ```
 
-### Task 6.3：搬 admin
+### Task 6.3: Migrate admin
 
 ```bash
 for f in entry/src/main/ets/pages/admin/*; do
@@ -1376,7 +1376,7 @@ done
 rmdir entry/src/main/ets/service/admin
 ```
 
-### Task 6.4：搬 notification
+### Task 6.4: Migrate notification
 
 ```bash
 git mv entry/src/main/ets/pages/NotificationCenter.ets entry/src/main/ets/features/notification/pages/NotificationCenter.ets
@@ -1395,7 +1395,7 @@ done
 rmdir entry/src/main/ets/service/push
 ```
 
-### Task 6.5：搬 multi-device
+### Task 6.5: Migrate multi-device
 
 ```bash
 git mv entry/src/main/ets/components/PasteFromOtherDeviceSheet.ets entry/src/main/ets/features/multi-device/components/PasteFromOtherDeviceSheet.ets
@@ -1415,7 +1415,7 @@ done
 rmdir entry/src/main/ets/service/sync
 ```
 
-### Task 6.6：搬 multi-platform
+### Task 6.6: Migrate multi-platform
 
 ```bash
 for sub in car native tablet tv watch; do
@@ -1435,15 +1435,15 @@ done
 rmdir entry/src/main/ets/service/tv
 ```
 
-### Task 6.7：搬 dev
+### Task 6.7: Migrate dev
 
 ```bash
 git mv entry/src/main/ets/pages/dev entry/src/main/ets/features/dev/pages
 ```
 
-### Task 6.8：build-profile.json5 release 排除 dev/
+### Task 6.8: build-profile.json5 release excludes dev/
 
-打开 `entry/build-profile.json5`，在 `targets[name=default].buildOption` 或顶层 `buildOption` 中找到 release config。添加 source exclude（语法以 OpenHarmony hvigor 当前版本为准）：
+Open `entry/build-profile.json5`. In the release config under `targets[name=default].buildOption` (or top-level `buildOption`), add a source exclude (syntax per the current OpenHarmony hvigor version):
 
 ```json5
 {
@@ -1457,56 +1457,56 @@ git mv entry/src/main/ets/pages/dev entry/src/main/ets/features/dev/pages
 }
 ```
 
-具体字段名需要查 hvigor 当前版本文档。备选：通过 `targets` 添加 product variant 配合条件包含。
+Confirm the exact field names against the current hvigor docs. Alternative: add a product variant via `targets` with a conditional include.
 
-### Task 6.9：删除空 service/ 顶层
+### Task 6.9: Delete the empty top-level service/
 
 ```bash
 ls entry/src/main/ets/service/
 rmdir entry/src/main/ets/service
 ```
 
-如非空，查遗漏。
+If not empty, investigate the leftovers.
 
-### Task 6.10：删除空 pages/
+### Task 6.10: Delete the empty pages/
 
 ```bash
 ls entry/src/main/ets/pages/
 rmdir entry/src/main/ets/pages
 ```
 
-### Task 6.11：删除空 components/
+### Task 6.11: Delete the empty components/
 
 ```bash
 ls entry/src/main/ets/components/
 rmdir entry/src/main/ets/components
 ```
 
-### Task 6.12：写 PR-6 rewrite-map + 跑 codemod + 修相对路径
+### Task 6.12: Write PR-6 rewrite-map + run codemod + fix relative paths
 
-`scripts/rewrite-map-pr6.json` 列每个 mv 映射。跑后修 build。
+`scripts/rewrite-map-pr6.json` lists each mv mapping. Run, then fix the build.
 
-### Task 6.13：release build 验证 dev/ 排除
+### Task 6.13: Release build verification — dev/ excluded
 
-- [ ] **Step 1：release build + 检查 hap 内容**
+- [ ] **Step 1: Release build + inspect hap contents**
 
 ```bash
 hvigor assembleHap --mode=release
 unzip -l entry/build/default/outputs/default/entry-default.hap | grep dev
 ```
 
-Expected: 空（dev/ 不在 release 产物中）
+Expected: empty (dev/ not in the release artifact)
 
-- [ ] **Step 2：debug build 验证 dev/ 仍在**
+- [ ] **Step 2: Debug build — verify dev/ still present**
 
 ```bash
 hvigor assembleHap --mode=debug
 unzip -l entry/build/default/outputs/default/entry-default-debug.hap | grep dev
 ```
 
-Expected: 非空（debug build 包含 dev/）
+Expected: non-empty (debug build contains dev/)
 
-### Task 6.14：VERIFY + commit + push + MR
+### Task 6.14: VERIFY + commit + push + MR
 
 ```bash
 git add -A
@@ -1524,24 +1524,24 @@ git push -u origin refactor/pr6-features-periphery
 
 ---
 
-# PR-7：收尾（路由 + barrel + boundary 校验 + 文档）
+# PR-7: Wrap-up (routing + barrels + boundary check + docs)
 
-**目标产出：** 全 barrel exports 完善；import boundary 校验脚本入 hvigor；新 docs/ARCHITECTURE.md。
+**Target output:** complete barrel exports at every layer; the import boundary check script is wired into hvigor; a new docs/ARCHITECTURE.md.
 
-**分支：** `git checkout main && git pull && git checkout -b refactor/pr7-finalize`
+**Branch:** `git checkout main && git pull && git checkout -b refactor/pr7-finalize`
 
-### Task 7.1：完善各层 barrel
+### Task 7.1: Complete each layer's barrel
 
-- [ ] **Step 1：core/index.ets**
+- [ ] **Step 1: core/index.ets**
 
 ```typescript
 export * from './router/RouteConstants';
 export * from './router/RouterService';
 ```
 
-按 core/ 实际公开 API 扩展。
+Extend per the actual public API surface of core/.
 
-- [ ] **Step 2：ui/index.ets**
+- [ ] **Step 2: ui/index.ets**
 
 ```typescript
 export * from './primitives/Button';
@@ -1559,7 +1559,7 @@ export * from './responsive/ResponsiveContainer';
 export * from './lazy/LazyImage';
 ```
 
-- [ ] **Step 3：api/index.ets**
+- [ ] **Step 3: api/index.ets**
 
 ```typescript
 export * from './client/HttpClient';
@@ -1576,7 +1576,7 @@ export * from './support/SupportApi';
 export * from './widget/WidgetApi';
 ```
 
-- [ ] **Step 4：store/index.ets**
+- [ ] **Step 4: store/index.ets**
 
 ```typescript
 export * from './UserStore';
@@ -1586,9 +1586,9 @@ export * from './AudioPlayerStore';
 export * from './StoreKeys';
 ```
 
-### Task 7.2：重排 RouteConstants 注释分组
+### Task 7.2: Reorganize RouteConstants with grouped comments
 
-打开 `entry/src/main/ets/core/router/RouteConstants.ets`，按 features 分组：
+Open `entry/src/main/ets/core/router/RouteConstants.ets`. Group by feature:
 
 ```typescript
 // ─── reader ─────────────────────────────────────────────
@@ -1601,13 +1601,13 @@ export const ROUTE_LIBRARY = 'features/library/pages/Library';
 export const ROUTE_AUDIOBOOK_PLAYER = 'features/audiobook/pages/AudiobookPlayer';
 export const ROUTE_AUDIOBOOK_TAB = 'features/audiobook/pages/AudiobookTab';
 
-// （按 15 feature 全部分组）
+// (group all 15 features)
 
 // ── new entries below ──
 // (rebase friendly anchor)
 ```
 
-### Task 7.3：写 import boundary 校验脚本
+### Task 7.3: Write the import boundary check script
 
 **File:** `scripts/check-import-boundary.mjs`
 
@@ -1617,7 +1617,7 @@ import { readFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
 
 const RULES = {
-  'features/': ['/features/'],  // 同层 features 之间禁止 import（同 feature 内自身路径需特例豁免）
+  'features/': ['/features/'],  // imports between sibling features forbidden (self-feature paths whitelisted)
   'ui/': ['/features/', '/api/', '/store/'],
   'api/': ['/features/', '/ui/', '/store/'],
   'store/': ['/features/', '/ui/'],
@@ -1663,9 +1663,9 @@ if (violations > 0) {
 console.log('Import boundary check passed.');
 ```
 
-### Task 7.4：把 boundary 脚本接入 hvigor pre-build hook
+### Task 7.4: Wire the boundary script into the hvigor pre-build hook
 
-打开 `hvigorfile.ts`，改为：
+Open `hvigorfile.ts` and replace with:
 
 ```typescript
 import { appTasks, OhosAppContext } from '@ohos/hvigor-ohos-plugin';
@@ -1687,51 +1687,51 @@ export default {
 };
 ```
 
-具体 hvigor 自定义 plugin API 以当前版本为准。备选方案：把 check 脚本通过 npm script 在 CI 中调用。
+The exact custom-plugin API depends on the current hvigor version. Fallback: invoke the check script via npm script in CI.
 
-### Task 7.5：写 docs/ARCHITECTURE.md
+### Task 7.5: Write docs/ARCHITECTURE.md
 
 **File:** `docs/ARCHITECTURE.md`
 
 ```markdown
-# harmony-app 架构
+# harmony-app architecture
 
-本应用采用 Hybrid feature-first 架构。
+This app uses the Hybrid feature-first architecture.
 
-## 顶层目录
+## Top-level directories
 
-- `entryability/` `abilities/` — Ability 入口
-- `core/` — 跨切关注点与平台能力
-- `ui/` — 跨 feature 共享 UI（primitives / responsive / lazy / sheets）
-- `api/` — HTTP 客户端，按业务域分包
-- `store/` — 全局响应式 store
-- `model/` — 单一源 domain model（对齐 server-cn DTO）
-- `features/` — 15 个垂直 feature
+- `entryability/` `abilities/` — Ability entry points
+- `core/` — cross-cutting concerns and platform capabilities
+- `ui/` — cross-feature shared UI (primitives / responsive / lazy / sheets)
+- `api/` — HTTP client, packaged by business domain
+- `store/` — global reactive store
+- `model/` — single-source domain model (aligned with server-cn DTOs)
+- `features/` — 15 vertical features
 
-## 层间依赖规则
+## Inter-layer dependency rules
 
-详见 docs/specs/2026-05-17-harmony-app-feature-first-design.md §3.2。
+See docs/specs/2026-05-17-harmony-app-feature-first-design.md §3.2.
 
-`scripts/check-import-boundary.mjs` 在 hvigor pre-build 中强制执行。
+`scripts/check-import-boundary.mjs` enforces them in the hvigor pre-build.
 
-## features 列表
+## Feature list
 
-15 features：reader / library / audiobook / vocab / discover / notes / ai-tools / account / support / study / notification / admin / multi-device / multi-platform / dev。
+15 features: reader / library / audiobook / vocab / discover / notes / ai-tools / account / support / study / notification / admin / multi-device / multi-platform / dev.
 
-## 新增 feature 流程
+## Workflow for adding a new feature
 
-1. 在 `features/` 下建目录：`features/<new>/{pages,components,service}`
-2. 写 `features/<new>/index.ets` barrel
-3. 在 `core/router/RouteConstants.ets` 的 `// ── new entries below ──` 锚点下添加路由常量
-4. 在 `entry/src/main/module.json5`（或对应 profile）pages 列表中注册
-5. 跑 `hvigor assembleHap` 验证 boundary 通过
+1. Create a directory under `features/`: `features/<new>/{pages,components,service}`
+2. Write a `features/<new>/index.ets` barrel
+3. Add a route constant under the `// ── new entries below ──` anchor in `core/router/RouteConstants.ets`
+4. Register the new page(s) in `entry/src/main/module.json5` (or its corresponding profile)
+5. Run `hvigor assembleHap` and verify the boundary check passes
 ```
 
-### Task 7.6：更新 harmony-app/README.md 反映新结构
+### Task 7.6: Update harmony-app/README.md to reflect the new structure
 
-打开 `README.md`，更新目录说明部分；移除"先把目录结构搭起来"等旧表述；链接到 `docs/ARCHITECTURE.md`。
+Open `README.md`, update the directory description; remove stale phrases like "start by laying out the directory structure"; link to `docs/ARCHITECTURE.md`.
 
-### Task 7.7：VERIFY + commit + push + MR
+### Task 7.7: VERIFY + commit + push + MR
 
 ```bash
 git add -A
@@ -1749,18 +1749,18 @@ git push -u origin refactor/pr7-finalize
 
 ---
 
-# 全局验收（PR-7 合并后）
+# Global acceptance (after PR-7 merges)
 
 ```bash
-# 1. .ts 残留
+# 1. .ts residue
 find entry/src/main/ets -name "*.ts" | wc -l
 # Expected: 0
 
-# 2. 顶层结构
+# 2. Top-level structure
 ls entry/src/main/ets/
 # Expected: entryability/  abilities/  core/  ui/  api/  store/  model/  features/
 
-# 3. 旧顶层全部消失
+# 3. Old top-levels fully gone
 for d in pages components service router native persistence widget theme extensions; do
   test -d "entry/src/main/ets/$d" && echo "FAIL: $d still exists" || echo "OK: $d gone"
 done
@@ -1769,7 +1769,7 @@ done
 node scripts/check-import-boundary.mjs
 # Expected: "Import boundary check passed."
 
-# 5. clean build double-mode
+# 5. clean build, both modes
 rm -rf build oh_modules && ohpm install && hvigor clean
 hvigor assembleHap
 hvigor assembleHap --mode=release
@@ -1778,43 +1778,43 @@ hvigor assembleHap --mode=release
 hvigor test
 ```
 
-真机回归：冷启动 + 全主路径 smoke。
+Real-device regression: cold start + full main-path smoke.
 
 ---
 
-# Out of Scope（与 spec §8 一致）
+# Out of Scope (matches spec §8)
 
-本 plan **不**执行以下专项，留 Phase 2 单独 spec/plan 跟踪：
+This plan does **not** execute the following — tracked in Phase 2 specs/plans:
 
-1. AudioPlayerStore 响应式范式重构（callback → `@ObservedV2` / `@Trace`）
-2. server-cn Audiobook DTO 对齐
-3. 性能 / 启动 / 渲染优化
-4. 工程化 / CI / 测试覆盖率提升
-5. 多端适配（折叠屏 / 平板 / 车机 / TV / 手表）深化
-6. HarmonyOS HAR/HSP 模块化
+1. AudioPlayerStore reactive paradigm refactor (callback → `@ObservedV2` / `@Trace`)
+2. server-cn Audiobook DTO alignment
+3. Performance / startup / rendering optimization
+4. Engineering / CI / test-coverage improvements
+5. Multi-surface adaptation depth (foldable / tablet / car / TV / watch)
+6. HarmonyOS HAR/HSP modularization
 
 ---
 
-# Self-Review 备注
+# Self-review notes
 
-本 plan 自审已做以下检查：
+This plan's self-review covered:
 
-1. **Spec coverage**：spec §1-9 每节都在 plan 中有对应 task。Spec §8 的 6 项 OOS 已在本 plan 末尾对应保留。
-2. **Placeholder scan**：无 TBD / TODO 残留；所有 step 含具体命令或代码。HttpClient 的 `BASE_URL` 是真实占位 URL，应当从 core/dynamic 配置读取，留作 Phase 2 followup。
-3. **Type consistency**：`AudioPlayerStateListener` 类型名前后一致；`Book` 字段在 spec §5 表与 plan Task 1.1 完全对齐。
-4. **PR 独立性**：每个 PR 均能独立 revert 而不破坏更早 PR 的状态；codemod map 每个 PR 一份。
-5. **NAPI ABI 守护**：每个 PR 末尾都跑 NAPI diff，baseline 在 PR-0 Task 0.3 建立。
-6. **child_process 用法**：所有自动化脚本使用 `spawnSync(cmd, [args...])` 数组形式，不用 shell 字符串拼接，避免命令注入风险。
+1. **Spec coverage**: each section in spec §1–9 has a corresponding task in this plan. The 6 OOS items in spec §8 are preserved at the end of this plan.
+2. **Placeholder scan**: no TBD / TODO residue; every step carries a concrete command or code snippet. The `BASE_URL` in HttpClient is a real placeholder URL; it should be read from core/dynamic config — recorded as a Phase 2 follow-up.
+3. **Type consistency**: the `AudioPlayerStateListener` type name is consistent across files; `Book` fields in spec §5 fully align with the Task 1.1 table.
+4. **PR independence**: each PR can be reverted independently without breaking earlier PRs' states; one codemod map per PR.
+5. **NAPI ABI guard**: every PR runs a NAPI diff at the end; baseline is established in PR-0 Task 0.3.
+6. **child_process usage**: all automation scripts use `spawnSync(cmd, [args...])` array form rather than shell string concatenation, eliminating command-injection risk.
 
-如执行中发现 plan 与实际不符（例如 hvigor 版本的 release exclude 语法、module.json5 实际结构），按需就地修正，**不阻塞推进**。
+If during execution the plan diverges from reality (e.g. the hvigor release exclude syntax or the actual module.json5 structure), patch in place as needed — **do not block progress**.
 
 ---
 
 # Execution Handoff
 
-Plan 已落盘到 `docs/specs/2026-05-17-harmony-app-feature-first-impl-plan.md`。
+The plan has been committed to `docs/specs/2026-05-17-harmony-app-feature-first-impl-plan.md`.
 
-接下来由你选择执行方式（在下一轮对话中告诉我）：
+Choose how to execute it (tell me in the next turn):
 
-**1. Subagent-Driven（推荐）** —— 每个 task 派遣一个新 subagent，task 间检查点 review，迭代快
-**2. Inline Execution** —— 在当前会话内按 task 顺序执行，到关键检查点暂停 review
+**1. Subagent-Driven (recommended)** — dispatch a fresh subagent per task; review at task checkpoints; iterate fast
+**2. Inline Execution** — execute task-by-task in the current session, pausing at key checkpoints for review

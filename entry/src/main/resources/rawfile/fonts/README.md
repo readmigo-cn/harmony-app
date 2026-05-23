@@ -1,29 +1,29 @@
 # Reader Fonts (rawfile/fonts/)
 
-W5-C5 注册了字体 family 名占位，真正的字体文件由 W7 phase 加入。
-缺文件时 `FontRegistry.registerFonts()` 仅打 warning，不影响启动。
+W5-C5 registered the font family-name placeholders; the actual font files are added in the W7 phase.
+When files are missing, `FontRegistry.registerFonts()` only emits a warning and does not affect startup.
 
-## 文件清单
+## File inventory
 
-| 文件名 | Family | 用途 | 授权 | 估算大小 | Phase |
+| Filename | Family | Use | License | Estimated size | Phase |
 |---|---|---|---|---|---|
-| CrimsonPro-Regular.ttf | CrimsonPro-Regular | 英文阅读衬线 Regular | SIL OFL 1.1 | ~250 KB | W7 |
-| CrimsonPro-Bold.ttf | CrimsonPro-Bold | 英文阅读衬线 Bold | SIL OFL 1.1 | ~250 KB | W7 |
-| SourceHanSansCN-Regular.ttf | SourceHanSansCN | 中文 UI / 长阅读无衬线 | SIL OFL 1.1 | ~10 MB（subset 后 ~3 MB） | W7 |
-| SourceHanSerifCN-Regular.ttf | SourceHanSerifCN | 中文阅读衬线 | SIL OFL 1.1 | ~10 MB（subset 后 ~3 MB） | W7 |
+| CrimsonPro-Regular.ttf | CrimsonPro-Regular | English reading serif Regular | SIL OFL 1.1 | ~250 KB | W7 |
+| CrimsonPro-Bold.ttf | CrimsonPro-Bold | English reading serif Bold | SIL OFL 1.1 | ~250 KB | W7 |
+| SourceHanSansCN-Regular.ttf | SourceHanSansCN | Chinese UI / long-read sans | SIL OFL 1.1 | ~10 MB (~3 MB after subset) | W7 |
+| SourceHanSerifCN-Regular.ttf | SourceHanSerifCN | Chinese reading serif | SIL OFL 1.1 | ~10 MB (~3 MB after subset) | W7 |
 
-## 命名规则
+## Naming rules
 
-- 文件名必须与 `FontRegistry.FONT_ENTRIES` 中的 `rawfilePath` 完全一致
-- 仅 `.ttf` / `.otf`；HarmonyOS NEXT 的 `font.registerFont` 不支持 woff2
+- Filename must exactly match the `rawfilePath` in `FontRegistry.FONT_ENTRIES`
+- Only `.ttf` / `.otf`; HarmonyOS NEXT `font.registerFont` does not support woff2
 
-## 子集化建议（W7）
+## Subsetting recommendation (W7)
 
-中文字体原始体积 10 MB+，必须做 subset：
-- 用 `pyftsubset` 按常用 7000 字裁剪到 ~3 MB
-- 阅读器内出现的稀有字符走系统兜底（HarmonyOS Sans / system serif）
+Raw Chinese fonts exceed 10 MB and must be subset:
+- Use `pyftsubset` to trim to ~3 MB based on the top 7,000 common characters
+- Rare characters that appear inside the reader fall back to system fonts (HarmonyOS Sans / system serif)
 
-## 系统字体
+## System fonts
 
-`HarmonyOS Sans` / `HarmonyOS Mono` 由系统提供，**无需注册**，
-直接 `.fontFamily('HarmonyOS Sans')` 即可。
+`HarmonyOS Sans` / `HarmonyOS Mono` are provided by the system and **do not need registration** —
+just use `.fontFamily('HarmonyOS Sans')` directly.

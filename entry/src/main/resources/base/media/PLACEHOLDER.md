@@ -1,53 +1,53 @@
-# Entry 媒体资源
+# Entry media resources
 
-Entry HAP 模块的 base 媒体资源。HarmonyOS qualifier 系统会自动按设备特性选择 `dark/` `large/` 等变体（如未来需要）。
+Base media resources for the Entry HAP module. The HarmonyOS qualifier system automatically picks per-device variants such as `dark/` or `large/` (if added later).
 
-## 当前资源
+## Current resources
 
-| 资源名 | 尺寸 | 格式 | 状态 | 来源 |
+| Resource | Size | Format | Status | Source |
 |--------|------|------|------|------|
-| `app_icon.png` | 1024×1024 | PNG | ✅ 已提供 | 同 AppScope/app_icon |
-| `start_window_background.png` | 1080×2400 | PNG | 🟡 程序生成占位 | ImageMagick: 品牌绿背景 + icon 居中 |
-| `app_icon.svg` | — | SVG | 历史遗留 | 旧版图标，可由 design 决定是否保留 |
+| `app_icon.png` | 1024×1024 | PNG | ✅ provided | Same as AppScope/app_icon |
+| `start_window_background.png` | 1080×2400 | PNG | 🟡 programmatically generated placeholder | ImageMagick: brand-green background + centered icon |
+| `app_icon.svg` | — | SVG | legacy | Older icon; design may decide whether to keep |
 
-> `start_window_background.png` 当前是程序生成的最简启动图（纯色背景 + 居中图标），等 design team 出最终启动页设计后替换。
+> `start_window_background.png` is currently the simplest programmatically generated splash (solid background + centered icon); replace once the design team delivers the final splash design.
 
-## 图标策略
+## Icon strategy
 
-**本项目不使用大量 UI icon 资源**。代码中的图标分两种实现：
+**This project does not rely on a large set of UI icon resources.** Code icons fall into two implementations:
 
-1. **Unicode glyphs** — 大多数交互图标用单字符 emoji/symbol，如阅读器翻页样式选择：
+1. **Unicode glyphs** — most interactive icons use a single emoji/symbol character, for example the reader's page-style selector:
    ```typescript
    // entry/src/main/ets/features/reader/components/ReaderSettingsSheet.ets
-   { value: 'paged',      label: '卷页', icon: '⊟' }
-   { value: 'horizontal', label: '滑动', icon: '↔' }
-   { value: 'scroll',     label: '滚动', icon: '↕' }
+   { value: 'paged',      label: 'Paged',      icon: '⊟' }
+   { value: 'horizontal', label: 'Horizontal', icon: '↔' }
+   { value: 'scroll',     label: 'Scroll',     icon: '↕' }
    ```
 
-2. **书封 fallback** — 仅 `app_icon` 一处复用：列表视图 cover 加载失败时显示
+2. **Book-cover fallback** — `app_icon` is reused in exactly one place: the list view's cover when image load fails
    `Image(book.coverUrl ?? $r('app.media.app_icon'))`
 
-历史上 PLACEHOLDER 曾列出 chevron / search / close / play / pause 等 45+ icons，但 PR1-PR7 feature-first 重构后实际代码全部改走 Unicode 字符。如未来需要补 SVG icon，请同步更新本文件清单。
+Historically this PLACEHOLDER listed 45+ icons (chevron / search / close / play / pause, etc.), but after the PR1–PR7 feature-first refactor the codebase moved to Unicode characters. If SVG icons are needed in the future, update this inventory accordingly.
 
-## 资源更新流程
+## Resource update workflow
 
 ```bash
-# 启动图重新生成（如需调整背景色或加文字）
+# Regenerate the launch window (e.g. to tweak background color or add text)
 SRC=/Users/HONGBGU/Documents/readmigo-repos/brand/assets/app-icon/icon-1024.png
 magick -size 1080x2400 xc:'#4CAF50' \
   \( "$SRC" -resize 480x480 \) -gravity center -composite \
   entry/src/main/resources/base/media/start_window_background.png
 ```
 
-应用图标从 brand repo 同步见 [`AppScope/resources/base/media/PLACEHOLDER.md`](../../../../../AppScope/resources/base/media/PLACEHOLDER.md)。
+For app-icon sync from the brand repo, see [`AppScope/resources/base/media/PLACEHOLDER.md`](../../../../../AppScope/resources/base/media/PLACEHOLDER.md).
 
-## 国际化文案
+## Localized strings
 
-文案统一在 `entry/src/main/resources/{base,zh_CN,zh_TW,en_US}/element/string.json`，不在本目录。
+UI strings live under `entry/src/main/resources/{base,zh_CN,zh_TW,en_US}/element/string.json`, not in this directory.
 
-## 验收
+## Acceptance
 
-- [x] 启动窗口能正常显示（非 1×1 黑白占位）
-- [x] 书封 fallback 引用解析成功
-- [ ] design team 交付正式启动页后替换
-- [ ] 真机验证启动过渡动画
+- [x] Launch window displays normally (not the 1×1 black/white placeholder)
+- [x] Book-cover fallback resolves successfully
+- [ ] Replace once the design team delivers the final splash
+- [ ] Verify launch transition animation on a real device

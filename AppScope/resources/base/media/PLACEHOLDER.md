@@ -1,45 +1,45 @@
-# AppScope 媒体资源
+# AppScope media resources
 
-应用级别（app-scope）的媒体资源。`AppScope/app.json5` 通过 `$media:app_icon` 引用本目录。
+App-scope media resources. `AppScope/app.json5` references this directory via `$media:app_icon`.
 
-## 当前资源
+## Current resources
 
-| 资源名 | 尺寸 | 格式 | 状态 | 来源 |
+| Resource | Size | Format | Status | Source |
 |--------|------|------|------|------|
-| `app_icon.png` | 1024×1024 | PNG | ✅ 已提供 | `readmigo-repos/brand/assets/app-icon/icon-1024.png` |
+| `app_icon.png` | 1024×1024 | PNG | ✅ provided | `readmigo-repos/brand/assets/app-icon/icon-1024.png` |
 
-> 注：HarmonyOS Adaptive Icon 标称尺寸 108×108，运行时由系统从高分辨率源缩放。源图保持 1024×1024 以满足应用市场提交要求。
+> Note: HarmonyOS Adaptive Icon's nominal size is 108×108; the system scales from a high-resolution source at runtime. The source image stays at 1024×1024 to satisfy app-store submission requirements.
 
-## 资产更新流程
+## Asset update workflow
 
-如海外 `brand/dist/harmony/app-icon/` 目录后续生成，可执行（在 repo 根运行）：
+If the upstream `brand/dist/harmony/app-icon/` directory is generated later, run from the repo root:
 
 ```bash
 bash brand/sync-from-brand.sh
 ```
 
-否则手动同步：
+Otherwise sync manually:
 
 ```bash
 cp /Users/HONGBGU/Documents/readmigo-repos/brand/assets/app-icon/icon-1024.png \
    AppScope/resources/base/media/app_icon.png
 ```
 
-## 配置引用
+## Configuration reference
 
-`AppScope/app.json5` 当前已正确引用：
+`AppScope/app.json5` already references these correctly:
 
-- `"icon": "$media:app_icon"` → 本目录的 `app_icon.png`
-- `"label": "$string:app_name"` → 各语言 `element/string.json`（zh_CN="米果智读" / en_US="Readmigo"）
+- `"icon": "$media:app_icon"` → `app_icon.png` in this directory
+- `"label": "$string:app_name"` → per-language `element/string.json` (localized strings: zh_CN, zh_TW, en_US — see those resource files for current values)
 
-## 验收清单
+## Acceptance checklist
 
-- [x] 应用图标在启动器中正确显示
-- [x] 1024×1024 源图可被系统缩放至所有需要尺寸
-- [ ] 真机验证图标显示效果（需在真实华为设备上测试）
+- [x] App icon displays correctly in the launcher
+- [x] 1024×1024 source can be scaled by the system to every required size
+- [ ] Verify the icon on a real Huawei device
 
-## 相关文档
+## Related docs
 
-- `brand/README.md` — 品牌资源总览
-- `entry/src/main/resources/base/media/PLACEHOLDER.md` — Entry module 媒体资源
+- `brand/README.md` — brand assets overview
+- `entry/src/main/resources/base/media/PLACEHOLDER.md` — Entry module media resources
 - HarmonyOS Adaptive Icon: https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/adaptive-icon-0000001667688681

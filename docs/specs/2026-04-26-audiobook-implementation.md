@@ -1,8 +1,8 @@
-# Audiobook (听书) Feature Implementation
+# Audiobook Feature Implementation
 
-> **功能对齐**: Overseas `readmigo-repos/mobile/src/features/audiobook` + `audiolab`  
-> **创建日期**: 2026-04-26  
-> **状态**: ✅ Complete (UI/UX layer ready, TTS integration pending)
+> **Feature alignment**: Overseas `readmigo-repos/mobile/src/features/audiobook` + `audiolab`  
+> **Created**: 2026-04-26  
+> **Status**: ✅ Complete (UI/UX layer ready, TTS integration pending)
 
 ---
 
@@ -35,7 +35,7 @@ Full audiobook playback feature implementation for HarmonyOS, aligned with overs
 
 ### Services
 - `service/AudiobookApi.ts` - API service for audiobook streaming, progress sync
-- `service/TTSService.ts` - TTS integration (科大讯飞/阿里云/百度)
+- `service/TTSService.ts` - TTS integration (iFlytek / Aliyun / Baidu)
 - `store/AudioPlayerStore.ts` - Global audio player state management
 
 ### Pages
@@ -64,7 +64,7 @@ Full audiobook playback feature implementation for HarmonyOS, aligned with overs
 | **TTS** | | | |
 | TTS generation | ✅ | ✅ | Structure ready |
 | Voice selection | ✅ | ✅ | Structure ready |
-| 科大讯飞 integration | N/A | ✅ | Domestic adaptation |
+| iFlytek integration | N/A | ✅ | Domestic adaptation |
 | **Advanced** | | | |
 | Word-level highlighting | ✅ | ✅ | Structure ready |
 | Follow-along text | ✅ | ✅ | Structure ready |
@@ -75,7 +75,7 @@ Full audiobook playback feature implementation for HarmonyOS, aligned with overs
 
 ## Key Components
 
-### AudiobookTab (听书标签页)
+### AudiobookTab (Audiobook tab)
 
 ```
 Features:
@@ -96,7 +96,7 @@ UI Structure:
 └── Mini Player (when playing)
 ```
 
-### AudiobookPlayer (播放页)
+### AudiobookPlayer (Player page)
 
 ```
 Features:
@@ -122,7 +122,7 @@ UI Structure:
 └── Modals (Speed/Sleep/Chapters/Voice)
 ```
 
-### AudioPlayerStore (状态管理)
+### AudioPlayerStore (State management)
 
 ```typescript
 State:
@@ -146,15 +146,15 @@ Actions:
 
 ---
 
-## TTS Integration (国内化)
+## TTS Integration (domestic providers)
 
 ### Supported Providers
 
 | Provider | Voices | Status |
 |----------|--------|--------|
-| **科大讯飞 (iFlytek)** | 小燕、久久、知风、小美 | ✅ Primary |
-| **阿里云 (Aliyun)** | 小云 | ✅ Backup |
-| **百度 (Baidu)** | 春宇 | ✅ Backup |
+| **iFlytek** | Xiaoyan, Jiujiu, Zhifeng, Xiaomei | ✅ Primary |
+| **Aliyun** | Xiaoyun | ✅ Backup |
+| **Baidu** | Chunyu | ✅ Backup |
 
 ### TTS Service API
 
@@ -170,7 +170,7 @@ TTSService.setConfig({ provider, voiceId, speed })
 
 ```
 1. User selects ebook → "Generate Audiobook"
-2. Select TTS voice (科大讯飞 default)
+2. Select TTS voice (iFlytek default)
 3. Select chapters (all or specific)
 4. Submit generation request
 5. Server processes (shows progress)
@@ -225,7 +225,7 @@ Tab Theme (Light):
 ### Sleep Timer Options
 
 ```
-5 分钟 | 10 分钟 | 15 分钟 | 30 分钟 | 45 分钟 | 60 分钟 | 本章结束
+5 min | 10 min | 15 min | 30 min | 45 min | 60 min | End of chapter
 ```
 
 ---
@@ -236,7 +236,7 @@ Tab Theme (Light):
 
 - [ ] Audiobook streaming API
 - [ ] Progress sync API
-- [ ] TTS generation pipeline (科大讯飞 integration)
+- [ ] TTS generation pipeline (iFlytek integration)
 - [ ] Word-level timestamp generation
 - [ ] Audiobook search
 
@@ -262,7 +262,7 @@ Tab Theme (Light):
 1. **Connect real API** - Replace mock data with `server-cn` API calls
 2. **Background playback** - Implement HarmonyOS background audio service
 3. **Lock screen controls** - Add media session integration
-4. **TTS pipeline** - Integrate 科大讯飞 TTS API in `server-cn`
+4. **TTS pipeline** - Integrate iFlytek TTS API in `server-cn`
 
 ### Short-term (Phase 2)
 5. **Download management** - Offline audiobook downloads
@@ -282,7 +282,7 @@ Tab Theme (Light):
 
 1. **Mock data** - Currently using mock audiobook data
 2. **No background playback** - Requires HarmonyOS audio service setup
-3. **TTS not integrated** - Structure ready, needs 科大讯飞 API
+3. **TTS not integrated** - Structure ready, needs iFlytek API
 4. **No downloads** - Download management not implemented
 5. **No Whispersync** - Ebook sync structure ready, needs backend
 
@@ -332,8 +332,7 @@ harmony-app/entry/src/main/ets/
 
 **Implementation completed following the principle:**
 > "Same features, not missing core functionality"
-> 功能对齐海外版，核心功能不缺失
 
-**Reference**: 
+**Reference**:
 - Overseas: `mobile/src/features/audiobook/`
 - Overseas: `audiolab/` (TTS pipeline)

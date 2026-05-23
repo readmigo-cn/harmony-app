@@ -90,7 +90,7 @@ All four core modules have been implemented for the Readmigo HarmonyOS app, with
 - ✅ Reading progress sync
 
 **AI Features (Domestic LLM Integration):**
-- ✅ Translation panel structure (ready for 百度翻译/DeepSeek)
+- ✅ Translation panel structure (ready for Baidu Translate / DeepSeek)
 - ✅ Copy / TTS / Save vocabulary actions
 - ✅ Loading state during translation
 
@@ -101,13 +101,13 @@ All four core modules have been implemented for the Readmigo HarmonyOS app, with
 - `SettingsPanel` - Reading preferences
 - `TranslationPanel` - AI translation bottom sheet
 - `IconButton` - Reusable icon button
-- `ThemeButton` - Theme switcher (日/暖/夜)
+- `ThemeButton` - Theme switcher (Light/Sepia/Dark)
 
 **API Integration Points:**
 - `BookApi.getBookDetail()` - Load book with chapters
 - `BookApi.updateProgress()` - Sync reading progress
 - `TranslationApi.translate()` - AI translation (domestic provider)
-- `TTSApi.speak()` - Text-to-speech (科大讯飞)
+- `TTSApi.speak()` - Text-to-speech (iFlytek)
 
 **Theme Support:**
 - Light: `#ffffff` background, `#1a1a1a` text
@@ -160,7 +160,7 @@ All four core modules have been implemented for the Readmigo HarmonyOS app, with
 **Domestic Integration:**
 - Huawei Account Kit (login)
 - HMS IAP (subscriptions)
-- Language priority: 简体中文 > 繁體中文 > English
+- Language priority: Simplified Chinese > Traditional Chinese > English
 
 ---
 
@@ -237,8 +237,8 @@ All four core modules have been implemented for the Readmigo HarmonyOS app, with
 ### Short-term (Phase 2)
 5. **EPUB rendering engine** - Integrate C++ typesetting engine via NAPI
 6. **Text selection** - Implement proper text selection for translation
-7. **Domestic LLM integration** - Connect 百度翻译/DeepSeek for translation
-8. **TTS integration** - Connect 科大讯飞 for text-to-speech
+7. **Domestic LLM integration** - Connect Baidu Translate / DeepSeek for translation
+8. **TTS integration** - Connect iFlytek for text-to-speech
 9. **HMS integration** - Account Kit, IAP, Analytics
 
 ### Medium-term (Phase 3)
@@ -309,13 +309,12 @@ harmony-app/entry/src/main/ets/
 
 All features are designed for domestic China deployment:
 - ✅ No overseas service dependencies
-- ✅ Ready for 网信办 content audit
-- ✅ Ready for 生成式 AI 服务备案
+- ✅ Ready for CAC (Cyberspace Administration of China) content audit
+- ✅ Ready for generative-AI service registration
 - ✅ Huawei Account / HMS native integration
-- ✅ Domestic LLM providers (DeepSeek/百度/讯飞)
+- ✅ Domestic LLM providers (DeepSeek / Baidu / iFlytek)
 
 ---
 
 **Implementation completed following the principle:**
 > "Same features, not missing core functionality"
-> 功能对齐海外版，核心功能不缺失

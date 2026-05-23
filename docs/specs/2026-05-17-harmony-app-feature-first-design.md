@@ -1,111 +1,111 @@
-# harmony-app Feature-First 架构重构设计
+# harmony-app Feature-First architecture refactor — design
 
-- **状态**: Draft（待用户最终批准）
-- **日期**: 2026-05-17
-- **范围**: 仅 `readmigo-cn-repos/harmony-app/`（不涉及 badge-engine / typesetting / napi-bridge / llm-adapter / server-cn / infra-cn）
-- **预期产出**: 7 个 PR，~5–7 工作日，单人节奏
-- **方法论入口**: 由 Claude superpowers `brainstorming` skill 引导生成；后续由 `writing-plans` skill 生成实施计划
+- **Status**: Draft (awaiting final user approval)
+- **Date**: 2026-05-17
+- **Scope**: `harmony-app/` only (does not touch badge-engine / typesetting / napi-bridge / llm-adapter / server-cn / infra-cn)
+- **Expected output**: 7 PRs, ~5–7 working days, single-person pace
+- **Methodology entry**: generated via Claude superpowers `brainstorming` skill; subsequent implementation plan produced by the `writing-plans` skill
 
 ---
 
-## 1. 问题陈述
+## 1. Problem statement
 
-harmony-app（米果智读 CN，HarmonyOS NEXT，~5 万行 ArkTS）当前为**横向分层**结构：
+harmony-app (Readmigo CN, HarmonyOS NEXT, ~50k lines of ArkTS) currently has a **horizontal layered** structure:
 
 ```
 entry/src/main/ets/
-├── pages/        17k 行 / 38+ 文件（顶层平铺 + 7 个端适配子目录混排）
-├── service/      14k 行 / 22 个子目录（9 个为"单文件目录"）
-├── components/   10k 行 / 24 个顶层组件 + responsive/(3) + optimized/(1) + index.ets barrel（分类轴不一致）
-├── store/        4 文件，`.ts` 和 `.ets` 混用
-├── model/        7 文件，`Book.ts` 与 `Book.ets` 同名共存且字段不兼容
+├── pages/        17k lines / 38+ files (flat top level + 7 surface-adapter subdirs interleaved)
+├── service/      14k lines / 22 subdirectories (9 are "single-file directories")
+├── components/   10k lines / 24 top-level components + responsive/(3) + optimized/(1) + index.ets barrel (inconsistent classification axis)
+├── store/        4 files, `.ts` and `.ets` mixed
+├── model/        7 files, `Book.ts` and `Book.ets` coexist with the same name and incompatible fields
 ├── persistence/  DatabaseManager + RdbOrm + repositories/
-├── router/       三件套（含 RouterAdapter 过度抽象）
+├── router/       trio (including over-abstracted RouterAdapter)
 ├── native/  widget/  theme/  abilities/  extensions/  entryability/
 ```
 
-### 已识别的核心债
+### Identified core debt
 
-1. **`.ts` / `.ets` 双轨残留** — `Book.ts`、`Audiobook.ts`、`store/AudioPlayerStore.ts` 是从海外 mobile 拷贝来的 `.ts` 残留；其中 `Book.ts` 与 `Book.ets` schema 不兼容（slug/cefrLevel 仅 .ets 有；series/榜单类型仅 .ts 有；`UserBook` 字段揭示了两套 reader 实现的痕迹）。
-2. **service 层过度细分** — 22 个子目录中 9 个是单文件目录（admin/car/dynamic/experiments/llm/storage/translation/tts/tv），抽象成本无对应封装收益。
-3. **components 分类轴混乱** — `responsive/`（按场景）与 `optimized/`（按特征）维度不对齐，`optimized/` 仅 1 文件。
-4. **pages 顶层平铺与子目录混排** — 38 个 pages 中既有平铺，又有 admin/atomic/car/native/tablet/tv/watch 子目录。
-5. **横向分层带来的跨目录跳转地狱** — 修改一个 feature 需在 pages/components/service/store/model 5 个目录间往返。
-6. **router 过度抽象** — RouteConstants + RouterAdapter + RouterService 三件套对 529 行总量而言冗余。
-7. **隐性范式 bug**（**本次范围外**，记入 Phase 2）— `AudioPlayerStore` 用 callback subscribe 模式，ArkUI `@State` 不会订阅，UI 不会因状态变化 rebuild。
+1. **`.ts` / `.ets` dual-track leftovers** — `Book.ts`, `Audiobook.ts`, and `store/AudioPlayerStore.ts` are `.ts` leftovers copied from overseas mobile; `Book.ts` and `Book.ets` schemas are incompatible (slug/cefrLevel only in .ets; series/list types only in .ts; `UserBook` fields reveal traces of two reader implementations).
+2. **service layer over-fragmented** — 9 of 22 subdirectories are single-file directories (admin/car/dynamic/experiments/llm/storage/translation/tts/tv); abstraction cost without corresponding encapsulation benefit.
+3. **components classification axes mixed** — `responsive/` (by scenario) and `optimized/` (by characteristic) don't align; `optimized/` has only 1 file.
+4. **pages top-level flat + subdirectory mix** — among 38 pages, some are flat and others are in admin/atomic/car/native/tablet/tv/watch subdirs.
+5. **Cross-directory jump hell from horizontal layering** — modifying one feature requires bouncing between pages/components/service/store/model 5 directories.
+6. **router over-abstraction** — RouteConstants + RouterAdapter + RouterService trio is redundant for 529 total lines.
+7. **Implicit paradigm bug** (**out of scope for this refactor**, recorded for Phase 2) — `AudioPlayerStore` uses callback subscribe; ArkUI `@State` doesn't subscribe to it, so UI won't rebuild on state changes.
 
-### 优化轴选择
+### Optimization axis
 
-用户已明确：**单一轴 = 架构 / 代码组织清理**（不动性能、工程化、多端适配 —— 这些是独立专项）；干预深度 = **大重构（6–8 PR）**，采用 feature-first 化方案。
+The user has explicitly chosen: **single axis = architecture / code organization cleanup** (not performance, engineering, multi-surface adaptation — those are separate initiatives); intervention depth = **major refactor (6–8 PRs)**, using a feature-first approach.
 
 ---
 
-## 2. 方案选择
+## 2. Approach selection
 
-三种 feature-first 化路线对比：
+Three feature-first routes compared:
 
-| 方案 | 内容 | 取舍 |
+| Approach | Description | Trade-offs |
 |---|---|---|
-| **A. 纯 feature-first** | features/ 完全自治，跨切走 platform/ 和 shared/ | 共享 model/store/API 归属难定；shared/ 容易膨胀成"未命名横向层" |
-| **B. Hybrid（推荐）** | features/ 内自治 + core/ui/api/store/model 显式横向层 | 与当前代码现实匹配，承认横向层的真实必要性并瘦身 |
-| **C. HarmonyOS HAR/HSP 多模块** | 每 feature 拆 HAR 子模块，物理隔离 | hvigor 配置成本高、当前脚手架成熟度不够、过早 |
+| **A. Pure feature-first** | features/ fully autonomous; cross-cutting goes through platform/ and shared/ | Shared model/store/API ownership is unclear; shared/ tends to balloon into an unnamed horizontal layer |
+| **B. Hybrid (recommended)** | features/ self-contained + core/ui/api/store/model explicit horizontal layers | Matches current code reality; acknowledges horizontal layers' true necessity and slims them down |
+| **C. HarmonyOS HAR/HSP multi-module** | Each feature split into a HAR submodule, physically isolated | hvigor configuration cost is high; current scaffolding maturity insufficient; premature |
 
-**采纳方案：B（Hybrid）**。理由：
-- 主要痛点是横向分层混乱 + .ts/.ets 双轨 + service 过度细分；B 全部命中。
-- 6–8 PR 颗粒度自然契合 B 的工作分解。
-- 不引入 hvigor 多模块配置改动，保留可回退性。
-- 未来局部 feature 真需要独立打包时再升级到 C，不预付成本。
+**Adopted approach: B (Hybrid)**. Reasoning:
+- Main pain points are horizontal-layer chaos + .ts/.ets dual track + service over-fragmentation; B addresses all of them.
+- 6–8 PR granularity naturally aligns with B's work breakdown.
+- No hvigor multi-module configuration changes; rollback remains feasible.
+- If a local feature genuinely needs independent packaging later, upgrade to C; do not pay that cost upfront.
 
 ---
 
-## 3. 目标架构
+## 3. Target architecture
 
-### 3.1 目录树
+### 3.1 Directory tree
 
 ```
 entry/src/main/ets/
-├── entryability/             [不动] EntryAbility 入口
-├── abilities/                [不动] 其他 Ability
+├── entryability/             [unchanged] EntryAbility entry point
+├── abilities/                [unchanged] other Abilities
 │
-├── core/                     # 跨切关注点与平台能力
-│   ├── router/               ← 原 router/ 三件套；删除 RouterAdapter.ets
-│   ├── shell/                ← 原 pages/Index.ets 内迁（App 骨架/TabBar）
-│   ├── native/               ← 原 native/ NAPI 调用层
-│   ├── persistence/          ← 原 persistence/ + 原 service/storage（薄壳并入）
-│   ├── widget/               ← 原 widget/ 卡片
-│   ├── theme/                ← 原 theme/
-│   ├── extensions/           ← 原 extensions/
-│   ├── analytics/            ← 原 service/analytics
-│   ├── monitoring/           ← 原 service/monitoring
-│   ├── performance/          ← 原 service/performance
-│   ├── cache/                ← 原 service/cache
-│   ├── experiments/          ← 原 service/experiments
-│   ├── moderation/           ← 原 service/moderation
-│   ├── dynamic/              ← 原 service/dynamic（动态配置）
-│   └── atomic/               ← 原 service/atomic（原子化服务运行时支持）
+├── core/                     # Cross-cutting concerns and platform capabilities
+│   ├── router/               ← original router/ trio; deletes RouterAdapter.ets
+│   ├── shell/                ← original pages/Index.ets moved in (App skeleton / TabBar)
+│   ├── native/               ← original native/ NAPI call layer
+│   ├── persistence/          ← original persistence/ + original service/storage (thin shell merged in)
+│   ├── widget/               ← original widget/ cards
+│   ├── theme/                ← original theme/
+│   ├── extensions/           ← original extensions/
+│   ├── analytics/            ← original service/analytics
+│   ├── monitoring/           ← original service/monitoring
+│   ├── performance/          ← original service/performance
+│   ├── cache/                ← original service/cache
+│   ├── experiments/          ← original service/experiments
+│   ├── moderation/           ← original service/moderation
+│   ├── dynamic/              ← original service/dynamic (dynamic config)
+│   └── atomic/               ← original service/atomic (atomic-service runtime support)
 │
-├── ui/                       # 跨 feature 共享 UI 组件
+├── ui/                       # Cross-feature shared UI components
 │   ├── primitives/           ← Button/Card/Input/List/Tab/Toast/Modal/Loading/EmptyState
 │   ├── responsive/           ← AdaptiveGrid/FoldAwareLayout/ResponsiveContainer
-│   ├── lazy/                 ← LazyImage（原 components/optimized/）
-│   └── sheets/               ← 跨 feature 通用 Sheet
+│   ├── lazy/                 ← LazyImage (original components/optimized/)
+│   └── sheets/               ← cross-feature generic Sheets
 │
-├── api/                      # 统一 HTTP/API 客户端，按业务域分包
-│   ├── client/               ← HttpClient + 拦截器 + 错误归一化
+├── api/                      # Unified HTTP/API client, packaged by business domain
+│   ├── client/               ← HttpClient + interceptors + normalized errors
 │   ├── books/  auth/  reading/  ai/  notes/  study/  subscription/  support/  widget/
 │
-├── store/                    # 全局响应式 store（统一 .ets）
+├── store/                    # Global reactive store (unified .ets)
 │   ├── UserStore.ets         SettingsStore.ets  ReadingStore.ets
-│   ├── AudioPlayerStore.ets  ← 反 .ts 化（仅文件名/语法；范式 bug 留 Phase 2）
+│   ├── AudioPlayerStore.ets  ← de-.ts'd (filename/syntax only; paradigm bug deferred to Phase 2)
 │   └── StoreKeys.ets
 │
-├── model/                    # 单一源 domain model，对齐 server-cn DTO
-│   ├── Book.ets              ← 唯一 Book schema（合并自 Book.ts + Book.ets）
-│   ├── Audiobook.ets         ← 反 .ts 化
+├── model/                    # Single-source domain models, aligned with server-cn DTOs
+│   ├── Book.ets              ← single Book schema (merged from Book.ts + Book.ets)
+│   ├── Audiobook.ets         ← de-.ts'd
 │   ├── Chapter.ets / ReadingProgress.ets / Highlight.ets / ExplainData.ets
 │   └── index.ets             ← barrel
 │
-└── features/                 # 15 个 feature，各自包含 pages + components + service-local
+└── features/                 # 15 features, each containing pages + components + service-local
     ├── reader/
     ├── library/
     ├── audiobook/
@@ -120,34 +120,34 @@ entry/src/main/ets/
     ├── admin/
     ├── multi-device/
     ├── multi-platform/
-    └── dev/                  ← release build 中条件排除
+    └── dev/                  ← conditionally excluded from release builds
 ```
 
-### 3.2 层间依赖约束（强制）
+### 3.2 Inter-layer dependency constraints (enforced)
 
-| 层 | 可以 import | 禁止 import |
+| Layer | May import | Forbidden imports |
 |---|---|---|
-| `features/<X>/` | `core/*`, `ui/*`, `api/*`, `store/*`, `model/*` | **其他 `features/<Y>/`**（跨 feature 必须走 store/api） |
-| `api/<域>/` | `core/native`, `model/*` | `features/*`, `ui/*`, `store/*` |
+| `features/<X>/` | `core/*`, `ui/*`, `api/*`, `store/*`, `model/*` | **other `features/<Y>/`** (cross-feature must go through store/api) |
+| `api/<domain>/` | `core/native`, `model/*` | `features/*`, `ui/*`, `store/*` |
 | `store/` | `api/*`, `core/persistence`, `model/*` | `features/*`, `ui/*` |
-| `model/` | （纯类型，零依赖） | 任何运行时模块 |
-| `ui/` | `core/theme`, `core/router`（类型）, `model/*`（类型） | `features/*`, `api/*`, `store/*` |
-| `core/` | 同层之间允许 | `features/*`, `ui/*`, `api/*`, `store/*` |
+| `model/` | (pure types, zero dependencies) | any runtime module |
+| `ui/` | `core/theme`, `core/router` (types), `model/*` (types) | `features/*`, `api/*`, `store/*` |
+| `core/` | sibling modules within core | `features/*`, `ui/*`, `api/*`, `store/*` |
 
-**强制手段**：`tools/check-import-boundary.ts` 脚本接入 hvigor pre-build hook，违规则构建失败。详见 §6.7。
+**Enforcement**: `tools/check-import-boundary.ts` is wired into the hvigor pre-build hook; violations fail the build. See §6.7.
 
-### 3.3 关键收紧点
+### 3.3 Key tightening points
 
-- 原 22 个 service 子目录 **0 残留**：跨切下沉 core/ (9 个)、HTTP 客户端上提 api/ (1 个)、feature 专属内迁 features/X/service/ (12 个)、storage 薄壳并入 core/persistence (1 个)。
-- 原 components 平铺 + responsive/optimized 杂乱 → ui/{primitives, responsive, lazy, sheets} 四子目录、分类轴单一（按 UI 角色）。
-- router 三件套 → 二件套：保留 `RouteConstants` + `RouterService`，**删除 RouterAdapter.ets**。
-- model 单一源：删除 `Book.ts`、`Audiobook.ts → .ets`、`AudioPlayerStore.ts → .ets`。**ets/ 内 0 个 `.ts` 文件**作为硬验收。
+- The original 22 service subdirectories: **0 leftovers** — 9 sunk into core/, 1 HTTP client lifted into api/, 12 feature-local moved into features/X/service/, 1 storage thin-shell merged into core/persistence.
+- Original components flat + responsive/optimized mess → ui/{primitives, responsive, lazy, sheets} four subdirectories, single classification axis (by UI role).
+- router trio → duo: keep `RouteConstants` + `RouterService`; **delete RouterAdapter.ets**.
+- Single-source model: delete `Book.ts`; `Audiobook.ts → .ets`; `AudioPlayerStore.ts → .ets`. **Zero `.ts` files under ets/** as a hard acceptance criterion.
 
 ---
 
-## 4. features 切分清单（15 个）
+## 4. Feature split inventory (15)
 
-| Feature | Pages（从 pages/ 内迁） | Components（从 components/ 内迁） | service-local（从 service/ 内迁） |
+| Feature | Pages (moved from pages/) | Components (moved from components/) | service-local (moved from service/) |
 |---|---|---|---|
 | **reader** | `Reader.ets` | BilingualReader / HighlightLayer / SelectionLayer / SentenceHighlight / ReaderSettingsSheet / ChapterTocSheet / NoteEditorSheet | — |
 | **library** | `Library.ets` | — | — |
@@ -165,236 +165,236 @@ entry/src/main/ets/
 | **multi-platform** | `pages/{car, native, tablet, tv, watch}/*` | — | `car` / `tv` |
 | **dev** | `pages/dev/*` | — | — |
 
-### 决策点
+### Decision points
 
-- `AudioPlayerStore` / `ReadingStore` 留全局 `store/`（多 feature 都用）。
-- `discover` / `study` 暂时单页/单模块，保持独立 feature（未来扩展空间已留）。
-- `dev` 在 `build-profile.json5` release variant 中 conditional exclude。
+- `AudioPlayerStore` / `ReadingStore` stay in global `store/` (used by multiple features).
+- `discover` / `study` are currently single-page / single-module but remain independent features (room reserved for future expansion).
+- `dev` conditionally excluded in the `build-profile.json5` release variant.
 
 ---
 
-## 5. Model 单一源策略
+## 5. Single-source model strategy
 
-### 5.1 Book.ets 合并规则（路线 1 = 以 server-cn DTO 为权威）
+### 5.1 Book.ets merge rules (route 1 = server-cn DTO is authoritative)
 
-| 字段 | 决策 | 来源 |
+| Field | Decision | Source |
 |---|---|---|
-| `id` / `title` / `author` / `language` | required | 两版相同 |
+| `id` / `title` / `author` / `language` | required | identical across both versions |
 | `slug` | required | .ets / server-cn |
 | `cefrLevel` | optional | .ets / server-cn |
-| `authorId` | optional | .ts（海外保留） |
-| `difficultyScore` | optional | .ts（与 .ets 的 `difficulty` 并存） |
-| `coverUrl` / `description` / `category` / `wordCount` | **optional**（放宽） | .ets 风格 |
-| `hasAudiobook` / `audiobookId` | optional，**放在 Book**（非 BookDetail） | .ets |
-| `BookDetail.epubUrl / chapters / aiScore / seriesId / seriesName / seriesPosition / seriesBookCount` | optional | .ts（保留） |
-| `BookFilters` / `BookListResponse` / `Rating` | 保留 | .ets |
-| `BookList` / `BookListBook` / `BookListType`（榜单） | 保留 | .ts（产品路线图保留） |
-| `UserBook.currentChapterIndex` | optional | .ets（原生 reader） |
-| `UserBook.currentCfi` | optional | .ts（epub.js reader；**保留**以兼容未来双 reader 切换） |
-| `UserBook.addedAt/lastReadAt` 类型 | `string`（ISO） | .ets |
+| `authorId` | optional | .ts (kept for overseas) |
+| `difficultyScore` | optional | .ts (coexists with .ets `difficulty`) |
+| `coverUrl` / `description` / `category` / `wordCount` | **optional** (relaxed) | .ets style |
+| `hasAudiobook` / `audiobookId` | optional, **placed on Book** (not BookDetail) | .ets |
+| `BookDetail.epubUrl / chapters / aiScore / seriesId / seriesName / seriesPosition / seriesBookCount` | optional | .ts (kept) |
+| `BookFilters` / `BookListResponse` / `Rating` | kept | .ets |
+| `BookList` / `BookListBook` / `BookListType` (rankings) | kept | .ts (preserved per product roadmap) |
+| `UserBook.currentChapterIndex` | optional | .ets (native reader) |
+| `UserBook.currentCfi` | optional | .ts (epub.js reader; **kept** for future dual-reader compatibility) |
+| `UserBook.addedAt/lastReadAt` type | `string` (ISO) | .ets |
 
-### 5.2 Audiobook.ts 转换
+### 5.2 Audiobook.ts conversion
 
-- 直接重命名 `.ts → .ets`
-- ArkTS 语法兼容修正（`export const` 初始化顺序、`import type` → `import` 视 ArkTS 版本而定）
-- **followup**：建议 server-cn 团队对齐此 Audiobook DTO（当前后端缺失）。
+- Rename directly `.ts → .ets`
+- ArkTS syntax compatibility fixes (`export const` initialization order; `import type` → `import` depending on ArkTS version)
+- **Follow-up**: recommend that the server-cn team align this Audiobook DTO (currently missing on backend).
 
-### 5.3 AudioPlayerStore.ts 转换（**两阶段**）
+### 5.3 AudioPlayerStore.ts conversion (**two phases**)
 
-- **Phase 1（本次范围）**：仅文件名 `.ts → .ets`、`import type` → `import`、callback 数组提取命名类型 `type StateListener = (s: AudioPlayerStore) => void`。**保留 callback subscribe 模式**。
-- **Phase 2（本次范围外）**：响应式范式重构，迁移到 `@ObservedV2` + `@Trace` 或 `AppStorage`，让 ArkUI 组件能用 `@StorageLink` / `@Watch` 直接订阅。独立 spec/PR 跟踪。
+- **Phase 1 (this scope)**: filename only `.ts → .ets`; `import type` → `import`; extract callback arrays into a named type `type StateListener = (s: AudioPlayerStore) => void`. **Retain the callback subscribe pattern.**
+- **Phase 2 (out of scope here)**: reactive paradigm refactor — migrate to `@ObservedV2` + `@Trace` or `AppStorage` so ArkUI components can subscribe directly via `@StorageLink` / `@Watch`. Tracked in a separate spec/PR.
 
-### 5.4 验收
+### 5.4 Acceptance
 
 - `find entry/src/main/ets -name "*.ts" | wc -l` = 0
-- `grep -r "from '.*Book\.ts'" entry/src/main/ets` 0 命中
-- `model/Book.ets`、`model/Audiobook.ets`、`store/AudioPlayerStore.ets` 唯一存在
-- `model/index.ets` barrel 重新生成
+- `grep -r "from '.*Book\.ts'" entry/src/main/ets` 0 hits
+- `model/Book.ets`, `model/Audiobook.ets`, `store/AudioPlayerStore.ets` are the sole copies
+- `model/index.ets` barrel regenerated
 
 ---
 
-## 6. PR 切片（7 个，按依赖排序）
+## 6. PR slicing (7 PRs, ordered by dependency)
 
-### 依赖图
+### Dependency graph
 
 ```
-PR-1 model + .ts 清算
-  └→ PR-2 core/ 底座 + 跨切下沉
-       └→ PR-3 ui/ + api/ 重排
-            └→ PR-4 features 批一（reader/library/audiobook/vocab）
-                 └→ PR-5 features 批二（ai-tools/account/study/discover/notes）
-                      └→ PR-6 features 批三（support/admin/notification/multi-device/multi-platform/dev）
-                           └→ PR-7 收尾（路由 + barrel + boundary 校验）
+PR-1 model + .ts cleanup
+  └→ PR-2 core/ base + cross-cutting sink
+       └→ PR-3 ui/ + api/ reshuffle
+            └→ PR-4 features batch 1 (reader/library/audiobook/vocab)
+                 └→ PR-5 features batch 2 (ai-tools/account/study/discover/notes)
+                      └→ PR-6 features batch 3 (support/admin/notification/multi-device/multi-platform/dev)
+                           └→ PR-7 wrap-up (routing + barrels + boundary check)
 ```
 
-### 6.1 PR-1：Model 单一源 + 消灭 .ts 残留
+### 6.1 PR-1: single-source model + eliminate .ts leftovers
 
-- 合并 `Book.ts` → `Book.ets`，删除 `Book.ts`；Audiobook 与 AudioPlayerStore 反 .ts 化（Phase 1）
-- 全仓 import 重写
-- 新增 `model/index.ets` barrel
-- 估算：~600 行实质改动 + ~200 处 import 重写；0.5 天
-- 验收：`.ts` 文件数 0；hvigor clean build pass；Hypium 单测 pass；冷启动 + 5 主 tab smoke OK
+- Merge `Book.ts` → `Book.ets`; delete `Book.ts`; de-.ts'd Audiobook and AudioPlayerStore (Phase 1)
+- Repo-wide import rewrite
+- New `model/index.ets` barrel
+- Estimate: ~600 lines of substantive change + ~200 import rewrites; 0.5 day
+- Acceptance: 0 `.ts` files; hvigor clean build passes; Hypium unit tests pass; cold start + 5-main-tab smoke OK
 
-### 6.2 PR-2：core/ 底座 + 跨切 service 下沉
+### 6.2 PR-2: core/ base + cross-cutting service sink
 
-- 创建 `core/` 顶层；6 个原横向目录搬入 (`router/native/persistence/widget/theme/extensions/`)
-- 9 个跨切 service 子目录搬入 core/（cache/monitoring/performance/analytics/experiments/moderation/dynamic/atomic + storage 并入 persistence）
-- 删除 `core/router/RouterAdapter.ets`（先 grep 确认 0 引用）
+- Create `core/` top level; 6 existing horizontal dirs moved in (`router/native/persistence/widget/theme/extensions/`)
+- 9 cross-cutting service subdirs moved into core/ (cache/monitoring/performance/analytics/experiments/moderation/dynamic/atomic + storage merged into persistence)
+- Delete `core/router/RouterAdapter.ets` (grep first to confirm 0 references)
 - `pages/Index.ets` → `core/shell/Index.ets`
-- 全仓 import 重写
-- 估算：~3500 行；0.5–1 天
-- 验收：旧顶层 router/native 等消失；service/ 仍存（剩余 13 个 feature-local 子目录待后续）；hvigor pass；smoke OK
+- Repo-wide import rewrite
+- Estimate: ~3500 lines; 0.5–1 day
+- Acceptance: old top-level router/native/etc. gone; service/ still exists (remaining 13 feature-local subdirs handled later); hvigor passes; smoke OK
 
-### 6.3 PR-3：ui/ 与 api/ 重排
+### 6.3 PR-3: ui/ and api/ reshuffle
 
-- 28 个 components（24 顶层 + responsive/3 + optimized/1，删除 index.ets barrel）重分类到 `ui/{primitives, responsive, lazy, sheets}` 或下沉到 features/X/components/
-- `service/api/` 11 个 Api 文件按业务域分包到 `api/{books, auth, reading, ai, notes, study, subscription, support, widget}`
-- 抽出 `api/client/HttpClient.ets`（如散落，统一抽出）
-- 删除 `components/index.ets`
-- 估算：~3000 行；0.5–1 天
-- 验收：`components/` `service/api/` 顶层目录消失
+- 28 components (24 top-level + responsive/3 + optimized/1, delete index.ets barrel) reclassified into `ui/{primitives, responsive, lazy, sheets}` or sunk into features/X/components/
+- 11 `service/api/` files split by business domain into `api/{books, auth, reading, ai, notes, study, subscription, support, widget}`
+- Extract `api/client/HttpClient.ets` (if scattered, unify)
+- Delete `components/index.ets`
+- Estimate: ~3000 lines; 0.5–1 day
+- Acceptance: top-level `components/` and `service/api/` directories disappear
 
-### 6.4 PR-4：features 批一（核心阅读）
+### 6.4 PR-4: features batch 1 (core reading)
 
-- reader / library / audiobook / vocab 四 feature 内迁（pages + components + service-local + 各自 barrel）
-- service/tts 移入 features/audiobook/
-- 路由表更新
-- 估算：~5500 行（reader 含大组件）；1–1.5 天
-- 验收：4 feature 路径可达；service/tts 删除；冷启动 + Reader 主路径 smoke OK
+- reader / library / audiobook / vocab — move pages + components + service-local + individual barrels into each feature
+- service/tts moved into features/audiobook/
+- Routing table updated
+- Estimate: ~5500 lines (reader has large components); 1–1.5 days
+- Acceptance: 4 features reachable via their paths; service/tts deleted; cold start + Reader main path smoke OK
 
-### 6.5 PR-5：features 批二（学习 + 账户）
+### 6.5 PR-5: features batch 2 (learning + account)
 
-- ai-tools / account / study / discover / notes 五 feature
-- service/{llm, translation, payment, subscription} 内迁到对应 feature
-- 估算：~4500 行；1 天
-- 验收：service/{llm, translation, payment, subscription} 删除
+- ai-tools / account / study / discover / notes — 5 features
+- service/{llm, translation, payment, subscription} moved into corresponding features
+- Estimate: ~4500 lines; 1 day
+- Acceptance: service/{llm, translation, payment, subscription} deleted
 
-### 6.6 PR-6：features 批三（外围 + 多端 + dev）
+### 6.6 PR-6: features batch 3 (periphery + multi-surface + dev)
 
-- support / admin / notification / multi-device / multi-platform / dev 六 feature
-- service/{admin, notification, push, distributed, sync, car, tv} 内迁
-- `build-profile.json5` 加 dev 在 release variant 的 exclude
-- 估算：~3500 行；1 天
-- 验收：**旧 service/ 顶层目录此时为空**，删除；旧 pages/{admin,car,native,tablet,tv,watch,dev}/ 删除
+- support / admin / notification / multi-device / multi-platform / dev — 6 features
+- service/{admin, notification, push, distributed, sync, car, tv} moved in
+- Add `excludes` for dev in `build-profile.json5` release variant
+- Estimate: ~3500 lines; 1 day
+- Acceptance: **at this point the old top-level service/ is empty**, delete it; delete old pages/{admin,car,native,tablet,tv,watch,dev}/
 
-### 6.7 PR-7：收尾（路由 + barrel + boundary 校验）
+### 6.7 PR-7: wrap-up (routing + barrels + boundary check)
 
-- `core/router/RouteConstants.ets` 全量重排（按 features 分组注释）
-- 各层 / 各 feature `index.ets` barrel 完善
-- 新增 `tools/check-import-boundary.ts` 脚本：遍历 ets 文件，校验跨层 import 规则，违规 exit 1
-- hvigor 配置：接入 pre-build hook
-- 删除 `entry/src/main/ets/pages/`（Index 已搬走）
-- 删除所有残留空目录
-- 更新 `harmony-app/README.md` + 新建 `docs/ARCHITECTURE.md`
-- 估算：~1500 行；0.5 天
-- 验收：0 顶层 `pages/components/service/`；boundary 脚本通过；README 反映现状
+- `core/router/RouteConstants.ets` fully reorganized (grouped by feature with comments)
+- Complete `index.ets` barrels at every layer and feature
+- Add `tools/check-import-boundary.ts` script: walk ets files, validate cross-layer import rules, exit 1 on violation
+- hvigor config: wire pre-build hook
+- Delete `entry/src/main/ets/pages/` (Index moved out)
+- Delete all remaining empty directories
+- Update `harmony-app/README.md` + create `docs/ARCHITECTURE.md`
+- Estimate: ~1500 lines; 0.5 day
+- Acceptance: 0 top-level `pages/components/service/`; boundary script passes; README reflects current reality
 
-### 总工作量
+### Total effort
 
-**~5–7 工作日 / 单人节奏**。
+**~5–7 working days / single-person pace**.
 
 ---
 
-## 7. 风险防护
+## 7. Risk mitigation
 
-### 7.1 Codemod 脚本（必须先建）
+### 7.1 Codemod script (must be built first)
 
-- 位置：`scripts/rewrite-imports.mjs`
-- 输入：`scripts/rewrite-map.json`，每 PR 维护一份
-- 实现：Node.js + 简单 regex（不引入 ts-morph，避免 ArkTS 装饰器解析失败）
-- 范围：`entry/src/main/ets/**/*.ets` + `entry/src/ohosTest/**/*.ets`
-- **强制跳过**：任何形如 `from 'lib*.so'` 的 NAPI ABI import
-- 每 PR 内必跑 + clean build 验证
+- Location: `scripts/rewrite-imports.mjs`
+- Input: `scripts/rewrite-map.json`, maintained per PR
+- Implementation: Node.js + simple regex (avoid ts-morph to prevent ArkTS decorator parsing failures)
+- Scope: `entry/src/main/ets/**/*.ets` + `entry/src/ohosTest/**/*.ets`
+- **Forced skip**: any `from 'lib*.so'` NAPI ABI imports
+- Run + clean-build verify in every PR
 
-### 7.2 中间态构建保护
+### 7.2 In-flight build protection
 
-- 强制 `git mv`（保留 git 历史）
-- 单 PR 内：mv → codemod → clean build 验证 → 修残留 → 整合为 1 commit。严禁留 broken intermediate commit。
-- 每 PR 合并前必须 `rm -rf build oh_modules && pnpm install && hvigor build` 全量重建
+- Mandatory `git mv` (preserve git history)
+- Within a single PR: mv → codemod → clean-build verify → fix residue → squash into 1 commit. No broken intermediate commits allowed.
+- Before merging each PR: `rm -rf build oh_modules && pnpm install && hvigor build` full rebuild
 
-### 7.3 回滚预案
+### 7.3 Rollback playbook
 
-- PR-1 schema 引发 NPE：单 PR revert；建议合并后**观察 24h** 再开 PR-2
-- PR-2/3 后构建挂：revert 单 PR
-- PR-4/5/6 某 feature 内迁后崩：revert 该 PR；其他 feature 已完成不受影响（feature 之间通过 store/api 解耦）
-- PR-7 boundary 脚本误报：暂摘 hvigor hook、单独修
-- Hard rule：单次 revert 必须使仓库回到 buildable 状态
+- PR-1 schema causes NPE: revert the single PR; recommend **24h observation** after merge before opening PR-2
+- PR-2/3 build breakage: revert the single PR
+- PR-4/5/6 a feature crashes after move: revert that PR; other completed features are unaffected (features are decoupled via store/api)
+- PR-7 boundary script false positives: temporarily detach the hvigor hook and patch separately
+- Hard rule: any single revert must return the repo to a buildable state
 
-### 7.4 PR-1 schema 兼容性细化
+### 7.4 PR-1 schema compatibility detail
 
-- Codemod 跑前先扫使用点：`grep -rn "book\.coverUrl\|book\.description\|book\.category\|book\.wordCount" entry/src/main/ets`
-- 对每个使用点按场景补空守卫：`book.coverUrl ?? ''`、`book.wordCount ?? 0`、`book.coverUrl?.startsWith(...)`
-- 把守卫的 diff 收进 PR-1 本身，避免下游污染
+- Before running the codemod, scan usage sites: `grep -rn "book\.coverUrl\|book\.description\|book\.category\|book\.wordCount" entry/src/main/ets`
+- For each usage site, add scenario-appropriate null guards: `book.coverUrl ?? ''`, `book.wordCount ?? 0`, `book.coverUrl?.startsWith(...)`
+- Include guard diffs in PR-1 itself to avoid downstream pollution
 
-### 7.5 路由表 / build-profile.json5 合并冲突防护
+### 7.5 Routing table / build-profile.json5 merge-conflict protection
 
-- PR-4/5/6 串行（不允许并行打开）
-- `RouteConstants` 新增条目固定在 `// ── new entries below ──` 锚点之后，便于 rebase
+- PR-4/5/6 run serially (no parallel openings allowed)
+- New `RouteConstants` entries are pinned after the `// ── new entries below ──` anchor, easing rebases
 
-### 7.6 Hypium 单测同步
+### 7.6 Hypium unit-test sync
 
-- 每 PR codemod 同时重写测试代码的 import
-- 单测的字符串字面量 mock path 单独扫描列嫌疑
-- 单测覆盖率每 PR 跑通作为 gate
+- Each PR's codemod also rewrites test imports
+- String-literal mock paths in tests are scanned and listed as candidates separately
+- Unit-test coverage as a gate per PR
 
-### 7.7 NAPI / native ABI 不变性
+### 7.7 NAPI / native ABI invariance
 
-- `core/native/` 内 `import x from 'lib*.so'` 不能被 codemod 触碰（脚本 explicit skip）
-- PR-2 完成后做 diff 验证：`grep -rn "from 'lib.*\.so'" core/native/` 前后必须一致
+- `core/native/` `import x from 'lib*.so'` cannot be touched by the codemod (script explicit skip)
+- After PR-2 completes, diff verify: `grep -rn "from 'lib.*\.so'" core/native/` must match before and after
 
-### 7.8 dev/ release build 排除验证
+### 7.8 dev/ release-build exclusion verification
 
-- PR-6 内 `build-profile.json5` release variant 加 `excludes: ["./features/dev/**"]`
-- 必跑 `hvigor assembleHap --mode=release` 后 `unzip -l *.hap | grep dev` 检查 dev/* 不在产物里
-- debug build 检查 dev/ 仍在（不被误伤）
+- In PR-6, add `excludes: ["./features/dev/**"]` to the `build-profile.json5` release variant
+- Mandatory: run `hvigor assembleHap --mode=release` and `unzip -l *.hap | grep dev` to verify dev/* is absent from the artifact
+- Verify dev/ still present in debug build (no accidental kill)
 
-### 7.9 守门检查表（每 PR 合并前）
+### 7.9 Pre-merge gate checklist (per PR)
 
 ```
-□ 1. hvigor clean build pass（必跑 clean，不依赖增量缓存）
-□ 2. Hypium 单测全套 pass
-□ 3. 真机冷启动 + 5 主 tab smoke 无异常
-□ 4. ets/ 内 .ts 文件数 = 0（PR-1 后持续保持）
-□ 5. codemod 跑后无遗漏 broken import
-□ 6. NAPI .so import 未被改动（diff before/after）
-□ 7. 单测代码中的 mock path 同步更新
-□ 8. 路由表条目齐全（与 features/X/pages/ 实际数量一致）
-□ 9. 单 PR git log 仅 1 个 commit
-□ 10. PR 描述包含本 PR 改动面 + 验收清单 + 回滚命令
+□ 1. hvigor clean build passes (always clean, don't rely on incremental cache)
+□ 2. Hypium full unit-test suite passes
+□ 3. Real-device cold start + 5-main-tab smoke runs without anomalies
+□ 4. .ts file count under ets/ = 0 (sustained after PR-1)
+□ 5. No broken imports left after codemod
+□ 6. NAPI .so imports unchanged (diff before/after)
+□ 7. Mock paths in test code updated in sync
+□ 8. Routing table entries complete (matches features/X/pages/ count)
+□ 9. Single PR's git log = 1 commit only
+□ 10. PR description includes the change surface + acceptance list + rollback command
 ```
 
 ---
 
-## 8. Out of Scope / Followups
+## 8. Out of Scope / Follow-ups
 
-本次重构**不包含**以下专项，单独立 spec/issue 追踪：
+This refactor **does not include** the following — tracked in separate specs/issues:
 
-1. **AudioPlayerStore 响应式范式重构** — callback subscribe → `@ObservedV2` + `@Trace` 或 `AppStorage`。当前 callback 模式不被 ArkUI `@State` 订阅，UI 不会因状态变化自动 rebuild。本次仅做 `.ts → .ets` 文件名 + 语法兼容，**保留行为不变**。
-2. **server-cn Audiobook DTO 对齐** — 当前后端缺失 Audiobook 模块。建议 server-cn 团队对齐 `model/Audiobook.ets`。
-3. **性能 / 启动 / 渲染优化** — 用户已明确不在本次范围。
-4. **工程化 / CI / 测试覆盖率提升** — 同上。
-5. **多端适配（折叠屏 / 平板 / 车机 / TV / 手表）深化** — 同上。
-6. **HarmonyOS HAR/HSP 模块化** — 留待某 feature 真正需要独立打包时再升级。
+1. **AudioPlayerStore reactive paradigm refactor** — callback subscribe → `@ObservedV2` + `@Trace` or `AppStorage`. The current callback pattern is not subscribed to by ArkUI `@State`, so UI doesn't automatically rebuild on state changes. This refactor only does `.ts → .ets` filename + syntax compatibility, **behavior preserved**.
+2. **server-cn Audiobook DTO alignment** — backend currently lacks an Audiobook module. Recommend that the server-cn team align with `model/Audiobook.ets`.
+3. **Performance / startup / rendering optimization** — user explicitly excluded from this scope.
+4. **Engineering / CI / test-coverage improvements** — same as above.
+5. **Multi-surface adaptation depth (foldable / tablet / car / TV / watch)** — same as above.
+6. **HarmonyOS HAR/HSP modularization** — deferred until a feature genuinely needs independent packaging.
 
 ---
 
-## 9. 验收总和
+## 9. Total acceptance
 
-完成 7 个 PR 后的全局验收：
+Global acceptance after the 7 PRs are complete:
 
 - `find entry/src/main/ets -name "*.ts" | wc -l` = **0**
-- `entry/src/main/ets/` 顶层只剩：`entryability/  abilities/  core/  ui/  api/  store/  model/  features/`
-- 旧顶层 `pages/  components/  service/  router/  native/  persistence/  widget/  theme/  extensions/` 全部消失或下沉
-- `tools/check-import-boundary.ts` 在 hvigor pre-build hook 中运行，违反层间依赖规则的 import 导致构建失败
-- `hvigor clean build` + release build 双双通过
-- Hypium 全套单测通过
-- 真机冷启动 + 全主路径 smoke OK
-- `docs/ARCHITECTURE.md` 反映新结构
+- The top level of `entry/src/main/ets/` contains only: `entryability/  abilities/  core/  ui/  api/  store/  model/  features/`
+- Old top-level `pages/  components/  service/  router/  native/  persistence/  widget/  theme/  extensions/` all gone or sunk
+- `tools/check-import-boundary.ts` runs in the hvigor pre-build hook; imports violating layer dependency rules fail the build
+- `hvigor clean build` + release build both pass
+- Full Hypium unit-test suite passes
+- Real-device cold start + full main-path smoke OK
+- `docs/ARCHITECTURE.md` reflects the new structure
 
 ---
 
-## 10. 下一步
+## 10. Next steps
 
-- 用户 review 本 spec → 批准后进入 `superpowers:writing-plans` skill
-- writing-plans 产出 `docs/specs/2026-05-17-harmony-app-feature-first-impl-plan.md`，列出每个 PR 的具体步骤、verification 命令、估时
-- 实施按 PR-1 → PR-7 顺序进行；每个 PR 合并前需用户最终确认（per CLAUDE.md "修改代码之前需要先输出方案让我 review" 规则）
+- User reviews this spec → upon approval, enter the `superpowers:writing-plans` skill
+- writing-plans produces `docs/specs/2026-05-17-harmony-app-feature-first-impl-plan.md`, listing concrete steps, verification commands, and time estimates per PR
+- Implementation proceeds in PR-1 → PR-7 order; each PR requires final user confirmation before merge (per the CLAUDE.md "output a plan for me to review before modifying code" rule)
