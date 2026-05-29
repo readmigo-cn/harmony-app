@@ -1,49 +1,31 @@
 // L3 Feature - Discover - ViewModel
 import { FeatureViewModel } from '../../../core/intent/ViewModel';
-import { IntentBus } from '../../../core/intent/IntentBus';
+import type { ViewModelState } from '../../../core/intent/ViewModel';
 import type { AnyIntent } from '../../../core/intent/Intent';
 import type { BrowseDiscoverIntent } from '../../../core/intent/Intent';
 import { DISCOVER_INTENT_KINDS } from '../intent/DiscoverIntents';
 
-export interface DiscoverState {
-  readonly activeCategory: string | null;
-  readonly searchQuery: string | null;
-  readonly loading: boolean;
-  readonly error: string | null;
+export interface DiscoverData {
+  readonly activeTab: string | null;
 }
 
-const INITIAL_STATE: DiscoverState = {
-  activeCategory: null,
-  searchQuery: null,
-  loading: false,
-  error: null,
-};
+export type DiscoverState = ViewModelState<DiscoverData>;
 
-export class DiscoverViewModel extends FeatureViewModel<DiscoverState> {
+export class DiscoverViewModel extends FeatureViewModel<DiscoverData> {
   readonly kind = 'discover';
 
   constructor() {
-    super(INITIAL_STATE);
-  }
-
-  init(): () => void {
-    const bus = IntentBus.getInstance();
-    const unsubs = DISCOVER_INTENT_KINDS.map((k) =>
-      bus.subscribe(k, (intent) => this.handle(intent)),
-    );
-    return () => unsubs.forEach((u) => u());
+    super(DISCOVER_INTENT_KINDS);
   }
 
   protected async handle(intent: AnyIntent): Promise<void> {
-    if (intent.kind === 'discover/browse') {
+    if (intent.kind === 'discover.browse') {
       this.handleBrowse(intent as BrowseDiscoverIntent);
     }
   }
 
   private handleBrowse(intent: BrowseDiscoverIntent): void {
-    const { category, searchQuery } = intent.payload;
-    this.state = { ...this.state, activeCategory: category, searchQuery, loading: true, error: null };
-    // Actual data fetch is owned by the existing Discover page; VM tracks filter state only.
-    this.state = { ...this.state, loading: false };
+    // Actual data fetch remains in the existing Discover page; VM tracks tab state only.
+    this.state = { status: 'data', data: { activeTab: intent.payload.tab ?? null } };
   }
 }

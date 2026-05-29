@@ -1,66 +1,36 @@
 // L3 Feature - Audiobook - ViewModel
 import { FeatureViewModel } from '../../../core/intent/ViewModel';
-import { IntentBus } from '../../../core/intent/IntentBus';
+import type { ViewModelState } from '../../../core/intent/ViewModel';
 import type { AnyIntent } from '../../../core/intent/Intent';
-import type {
-  PlayAudiobookIntent,
-  PauseAudiobookIntent,
-  SeekAudiobookIntent,
-  AdjustPlaybackSpeedIntent,
-} from '../../../core/intent/Intent';
+import type { PlayAudiobookIntent } from '../../../core/intent/Intent';
 import { TtsService } from '../service/TtsService';
 import { AUDIOBOOK_INTENT_KINDS } from '../intent/AudiobookIntents';
 
-export interface AudiobookState {
+export interface AudiobookData {
   readonly bookId: string;
   readonly chapterId: string;
-  readonly positionMs: number;
-  readonly speed: number;
   readonly playing: boolean;
-  readonly loading: boolean;
-  readonly error: string | null;
+  readonly speed: number;
 }
 
-const INITIAL_STATE: AudiobookState = {
-  bookId: '',
-  chapterId: '',
-  positionMs: 0,
-  speed: 1.0,
-  playing: false,
-  loading: false,
-  error: null,
-};
+export type AudiobookState = ViewModelState<AudiobookData>;
 
-export class AudiobookViewModel extends FeatureViewModel<AudiobookState> {
+export class AudiobookViewModel extends FeatureViewModel<AudiobookData> {
   readonly kind = 'audiobook';
 
   private readonly ttsService: TtsService = TtsService.getInstance();
 
   constructor() {
-    super(INITIAL_STATE);
-  }
-
-  init(): () => void {
-    const bus = IntentBus.getInstance();
-    const unsubs = AUDIOBOOK_INTENT_KINDS.map((k) =>
-      bus.subscribe(k, (intent) => this.handle(intent)),
-    );
-    return () => unsubs.forEach((u) => u());
+    super(AUDIOBOOK_INTENT_KINDS);
   }
 
   protected async handle(intent: AnyIntent): Promise<void> {
     switch (intent.kind) {
-      case 'audiobook/play':
+      case 'audiobook.play':
         await this.handlePlay(intent as PlayAudiobookIntent);
         break;
-      case 'audiobook/pause':
-        this.handlePause(intent as PauseAudiobookIntent);
-        break;
-      case 'audiobook/seek':
-        this.handleSeek(intent as SeekAudiobookIntent);
-        break;
-      case 'audiobook/adjust-speed':
-        this.handleAdjustSpeed(intent as AdjustPlaybackSpeedIntent);
+      case 'audiobook.pause':
+        this.handlePause();
         break;
       default:
         break;
@@ -68,27 +38,23 @@ export class AudiobookViewModel extends FeatureViewModel<AudiobookState> {
   }
 
   private async handlePlay(intent: PlayAudiobookIntent): Promise<void> {
-    const { bookId, chapterId, positionMs } = intent.payload;
-    this.state = { ...this.state, bookId, chapterId, positionMs, loading: true, error: null };
+    const { bookId, chapterId } = intent.payload;
+    this.state = { status: 'loading' };
     try {
-      this.ttsService.setSpeed(this.state.speed);
-      this.state = { ...this.state, playing: true, loading: false };
+      const currentSpeed = this.state.status === 'data' ? this.state.data.speed : 1.0;
+      this.ttsService.setSpeed(currentSpeed);
+      this.state = {
+        status: 'data',
+        data: { bookId, chapterId: chapterId ?? '', playing: true, speed: currentSpeed },
+      };
     } catch (e) {
-      this.state = { ...this.state, loading: false, error: (e as Error).message };
+      this.state = { status: 'error', error: { code: 'play_failed', message: (e as Error).message } };
     }
   }
 
-  private handlePause(_intent: PauseAudiobookIntent): void {
-    this.state = { ...this.state, playing: false };
-  }
-
-  private handleSeek(intent: SeekAudiobookIntent): void {
-    this.state = { ...this.state, positionMs: intent.payload.positionMs };
-  }
-
-  private handleAdjustSpeed(intent: AdjustPlaybackSpeedIntent): void {
-    const { speed } = intent.payload;
-    this.ttsService.setSpeed(speed);
-    this.state = { ...this.state, speed };
+  private handlePause(): void {
+    if (this.state.status === 'data') {
+      this.state = { status: 'data', data: { ...this.state.data, playing: false } };
+    }
   }
 }

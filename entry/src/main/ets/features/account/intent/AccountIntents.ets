@@ -1,25 +1,32 @@
 // L3 Feature - Account - Intent
-import type { OpenAccountIntent } from '../../../core/intent/Intent';
-import { SurfaceKind } from '../../../core/surface/SurfaceKind';
+import type { OpenAccountIntent, OpenSubscriptionsIntent } from '../../../core/intent/Intent';
 
-export type { OpenAccountIntent };
+export type { OpenAccountIntent, OpenSubscriptionsIntent };
 
-export type AccountIntent = OpenAccountIntent;
+export type AccountIntent = OpenAccountIntent | OpenSubscriptionsIntent;
 export type AccountIntentKind = AccountIntent['kind'];
 
 export const ACCOUNT_INTENT_KINDS: AccountIntentKind[] = [
-  'account/open',
+  'account.open',
+  'account.openSubscriptions',
 ];
 
-export function makeOpenAccountIntent(
-  section: 'profile' | 'subscription' | 'settings' | 'support' = 'profile',
-  source: SurfaceKind = SurfaceKind.Phone,
-): OpenAccountIntent {
+export function makeOpenAccountIntent(): OpenAccountIntent {
   return {
-    kind: 'account/open',
-    payload: { section },
-    idempotencyKey: `account/open:${section}:${Date.now()}`,
-    source,
+    kind: 'account.open',
+    payload: {},
+    idempotencyKey: `account.open:${Date.now()}`,
+    source: 'phone' as never,
+    tsMs: Date.now(),
+  };
+}
+
+export function makeOpenSubscriptionsIntent(): OpenSubscriptionsIntent {
+  return {
+    kind: 'account.openSubscriptions',
+    payload: {},
+    idempotencyKey: `account.openSubscriptions:${Date.now()}`,
+    source: 'phone' as never,
     tsMs: Date.now(),
   };
 }
