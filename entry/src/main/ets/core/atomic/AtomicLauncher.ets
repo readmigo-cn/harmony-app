@@ -8,10 +8,10 @@
  *   2. 主 App 内启动元服务：launchLookup / launchShareWord / launchContinue
  *   3. 元服务内反向跳主 App（W11-C1 LookupPage「跳到完整阅读」按钮）
  *
- * W11-C4：扩展三个元服务调度方法
- *   - launchLookup(word, context?, fromBundle?)         → LookupAbility
- *   - launchShareWord(word, recipient?)                 → 单词分享元服务（W11-B2 占位）
- *   - launchContinue(bookId, chapterIndex, pageIndex)   → 阅读接续元服务（W11-B2 占位）
+ * W5：统一语义方法
+ *   - lookupWord(ctx, word, contextSentence?)  → LookupAbility（同 launchLookup）
+ *   - shareWord(ctx, word, contextSentence?)   → ShareWordAbility（同 launchShareWord）
+ *   - continueReading(ctx, bookId, chapterIdx?, pageIdx?) → ContinueReadingAbility
  */
 
 import common from '@ohos.app.ability.common';
@@ -195,5 +195,52 @@ export class AtomicLauncher {
       },
     };
     await context.startAbility(want);
+  }
+
+  // ---------- W5：统一语义方法（对 launchLookup / launchShareWord / launchContinue 的别名） ----------
+
+  /**
+   * 拉起划词查询元服务（LookupAbility）。
+   * 语义别名，参数含义同 launchLookup。
+   */
+  static async lookupWord(
+    context: common.UIAbilityContext,
+    word: string,
+    contextSentence?: string,
+  ): Promise<void> {
+    return AtomicLauncher.launchLookup(context, word, contextSentence);
+  }
+
+  /**
+   * 拉起单词分享元服务（ShareWordAbility）。
+   * 语义别名，参数含义同 launchShareWord。
+   */
+  static async shareWord(
+    context: common.UIAbilityContext,
+    word: string,
+    contextSentence?: string,
+    meta?: {
+      bookTitle?: string;
+      chapterTitle?: string;
+      definition?: string;
+      phonetic?: string;
+      contextZh?: string;
+    },
+  ): Promise<void> {
+    return AtomicLauncher.launchShareWord(context, word, contextSentence, meta);
+  }
+
+  /**
+   * 拉起续读元服务（ContinueReadingAbility）。
+   * 语义别名；chapterIndex / pageIndex 默认 0（恢复上次位置）。
+   */
+  static async continueReading(
+    context: common.UIAbilityContext,
+    bookId: string,
+    chapterIndex: number = 0,
+    pageIndex: number = 0,
+    percentComplete: number = 0,
+  ): Promise<void> {
+    return AtomicLauncher.launchContinue(context, bookId, chapterIndex, pageIndex, percentComplete);
   }
 }

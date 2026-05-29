@@ -66,6 +66,8 @@
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "launchType": "singleton",
+        // W5：开启跨端 Continuation（手机 → 平板 / 手机 → 手机接续阅读）
+        "continuable": true,
         "skills": [
           {
             "entities": [

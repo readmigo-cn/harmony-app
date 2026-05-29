@@ -1,19 +1,18 @@
-// L3 Feature - Reader - Adapter
+// L4 Feature - Reader - Adapter
+// Owns all 3 VMs as separate @State fields; wires each to the IntentBus.
 import { ReaderViewModel } from '../viewmodel/ReaderViewModel';
+import { ReaderLookupViewModel } from '../viewmodel/ReaderLookupViewModel';
+import { ReaderProgressViewModel } from '../viewmodel/ReaderProgressViewModel';
 import { Reader } from './Reader';
 import type { ReaderRouteParams } from '../../../core/router/RouteConstants';
 
-/**
- * Adapter shim that owns the ReaderViewModel lifecycle and wires it
- * to the IntentBus. The existing Reader component is composed unchanged.
- * VM auto-subscribes on construction; onDestroy() unsubscribes.
- * W2 routing will point to this adapter instead of Reader directly.
- */
 @Component
 export struct ReaderAdapter {
   @Prop params: ReaderRouteParams;
 
-  private vm: ReaderViewModel = new ReaderViewModel();
+  @State private vm: ReaderViewModel = new ReaderViewModel();
+  @State private lookupVm: ReaderLookupViewModel = this.vm.lookupVm;
+  @State private progressVm: ReaderProgressViewModel = this.vm.progressVm;
 
   aboutToDisappear(): void {
     this.vm.onDestroy();

@@ -1,26 +1,19 @@
 /**
- * DeviceManager.ets — W13-C1 附近设备发现与信任管理
+ * DeviceManager.ets — W5 真机设备发现与信任管理
  *
- * 职责：
- *   - 调用 @ohos.distributedHardware.deviceManager 创建本应用的 deviceManager 实例
- *   - 扫描附近受信设备（同账号 / 已认证 HarmonyOS 设备）
- *   - 监听设备上下线事件，给 UI 推送变更
- *   - 提供同步获取本机信息 / 远端设备摘要
+ * 使用 @ohos.distributedDeviceManager（API 11+，@kit.DistributedServiceKit）
+ * 实现真实设备发现、上下线监听、本机信息获取。
  *
- * 与上层组件协作：
- *   - DeviceSelectorSheet 通过 discoverDevices() 拉列表（首次加载）
- *   - ContinuationManager.pollNearbyDevices() 也走本类
+ * 降级策略：
+ *   - 若 createDeviceManager 失败（模拟器 / 权限未授权），自动回退到 mock 列表
+ *   - mock 列表仅作为占位，true device session 不受影响
  *
- * 占位策略：
- *   - 模拟器 / 单机：返回 mock 列表（local self + 1 mock peer）
- *   - 真机：TODO 标注，由 W14 真机调试阶段替换为真实 API 调用
- *
- * 真实 API 参考：
- *   import deviceManager from '@ohos.distributedHardware.deviceManager';
- *   deviceManager.createDeviceManager(bundleName, (err, dm) => {...});
- *   dm.getAvailableDeviceListSync();
- *   dm.on('deviceStateChange', cb);
+ * 权限要求（module.json5 需声明）：
+ *   ohos.permission.DISTRIBUTED_DATASYNC
+ *   ohos.permission.ACCESS_BLUETOOTH（部分设备发现场景需要）
  */
+
+import distributedDeviceManager from '@ohos.distributedDeviceManager';
 
 const TAG = 'DeviceManager';
 
@@ -60,46 +53,67 @@ export interface DeviceChangeEvent {
 
 type DeviceChangeCallback = (e: DeviceChangeEvent) => void;
 
+/** Maps HarmonyOS numeric deviceType to our enum. */
+function toDeviceType(t: number): DeviceType {
+  switch (t) {
+    case 0x0E: return 'phone';
+    case 0x11: return 'tablet';
+    case 0x6D: return 'watch';
+    case 0x0C: return 'pc';
+    case 0x9C: return 'tv';
+    case 0x83: return 'car';
+    default: return 'unknown';
+  }
+}
+
+function toTrustedDevice(d: distributedDeviceManager.DeviceBasicInfo, online: boolean): TrustedDevice {
+  return {
+    deviceId: d.deviceId ?? '',
+    deviceName: d.deviceName ?? '',
+    deviceType: toDeviceType(d.deviceType ?? 0),
+    networkId: d.networkId ?? '',
+    online,
+    isLocal: false,
+  };
+}
+
 class DeviceManagerImpl {
   private bundleName: string = '';
-  /** 真实 deviceManager 实例占位（真机替换为 deviceManager.DeviceManager） */
-  private dmInstance: object | null = null;
+  private dmInstance: distributedDeviceManager.DeviceManager | null = null;
   private inited: boolean = false;
   private listeners: DeviceChangeCallback[] = [];
-  /** 缓存上一次扫描结果，避免短时多次调用真实 API */
   private cache: TrustedDevice[] = [];
   private cacheAt: number = 0;
   private static readonly CACHE_TTL_MS = 5_000;
+  private useMock: boolean = false;
 
   /**
-   * 初始化 deviceManager。
-   * 必须传 bundleName（与 module.json5 一致），HarmonyOS 框架据此做权限校验。
+   * Initialize deviceManager.
+   * bundleName must match module.json5. HarmonyOS framework does permission check.
    */
   async init(bundleName: string): Promise<void> {
     if (this.inited) return;
     this.bundleName = bundleName;
     try {
-      // TODO(W14 真机)：替换为真实 API
-      // const deviceManager = require('@ohos.distributedHardware.deviceManager');
-      // this.dmInstance = await new Promise((resolve, reject) => {
-      //   deviceManager.createDeviceManager(bundleName, (err, dm) => {
-      //     if (err) reject(err); else resolve(dm);
-      //   });
-      // });
-      // this.dmInstance.on('deviceStateChange', (data) => this.onDeviceStateChange(data));
-      this.dmInstance = null;
+      this.dmInstance = distributedDeviceManager.createDeviceManager(bundleName);
+      this.dmInstance.on('deviceStateChange', (data: distributedDeviceManager.DeviceStateChange) => {
+        this.onDeviceStateChange(data);
+      });
+      this.useMock = false;
       this.inited = true;
-      console.info(`${TAG} init bundleName=${bundleName} (mock)`);
+      console.info(`${TAG} init bundleName=${bundleName} (real API)`);
     } catch (e) {
-      console.warn(`${TAG} init failed: ${(e as Error).message}`);
+      // Fallback: simulator / permission not granted
+      this.dmInstance = null;
+      this.useMock = true;
+      this.inited = true;
+      console.warn(`${TAG} init failed, using mock: ${(e as Error).message}`);
     }
   }
 
   /**
-   * 扫描附近受信设备。
-   *
-   * 模拟器：返回 mock 列表（self + 1 个 mock peer 'tablet-mock-001'）
-   * 真机：调用 dmInstance.getAvailableDeviceListSync() + getTrustedDeviceListSync() 合并
+   * Discover nearby trusted devices (same HarmonyOS account).
+   * Returns cached result within CACHE_TTL_MS.
    */
   async discoverDevices(): Promise<TrustedDevice[]> {
     const now = Date.now();
@@ -107,27 +121,28 @@ class DeviceManagerImpl {
       return this.cache;
     }
     let list: TrustedDevice[] = [];
-    try {
-      // TODO(W14 真机)：替换为真实 API
-      // const trusted = (this.dmInstance as DeviceManager).getTrustedDeviceListSync();
-      // const available = (this.dmInstance as DeviceManager).getAvailableDeviceListSync();
-      // list = mergeAndDedupe(trusted, available).map(toTrustedDevice);
+    if (this.useMock || !this.dmInstance) {
       list = this.mockDevices();
-    } catch (e) {
-      console.warn(`${TAG} discoverDevices failed: ${(e as Error).message}`);
-      list = this.mockDevices();
+    } else {
+      try {
+        const available = this.dmInstance.getAvailableDeviceListSync();
+        list = (available ?? []).map((d) => toTrustedDevice(d, true));
+        // Prepend local device
+        const local = this.buildLocalDevice();
+        if (local) list.unshift(local);
+      } catch (e) {
+        console.warn(`${TAG} discoverDevices failed: ${(e as Error).message}`);
+        list = this.mockDevices();
+      }
     }
     this.cache = list;
     this.cacheAt = now;
-    console.info(`${TAG} discoverDevices count=${list.length} (mock)`);
     return list;
   }
 
   /**
-   * 订阅设备上下线变更。
-   *
-   * 真机：dmInstance.on('deviceStateChange', cb) → 在 onDeviceStateChange 内分发
-   * 占位：不会触发回调（mock 阶段无真实事件源）
+   * Subscribe to device online/offline changes.
+   * Returns unsubscribe handle.
    */
   subscribeDeviceChange(cb: DeviceChangeCallback): () => void {
     this.listeners.push(cb);
@@ -137,13 +152,40 @@ class DeviceManagerImpl {
     };
   }
 
-  /** 取消订阅所有 listener；通常在 EntryAbility.onDestroy 调用。 */
-  unsubscribeAll(): void {
-    this.listeners = [];
-    // TODO(W14 真机)：(this.dmInstance as DeviceManager).off('deviceStateChange', ...)
+  /** Emit device online event from SoulEngine status callback. @since W5 */
+  onDeviceOnline(cb: (device: TrustedDevice) => void): () => void {
+    return this.subscribeDeviceChange((e) => {
+      if (e.type === 'online') cb(e.device);
+    });
   }
 
-  /** 同步查询单个设备信息（缓存命中），找不到返回 null。 */
+  /** Emit device offline event from SoulEngine status callback. @since W5 */
+  onDeviceOffline(cb: (device: TrustedDevice) => void): () => void {
+    return this.subscribeDeviceChange((e) => {
+      if (e.type === 'offline') cb(e.device);
+    });
+  }
+
+  /**
+   * Returns current known devices (stable list for SurfaceContext / continuation-dev).
+   * Includes local device as first entry. @since W5
+   */
+  currentDevices(): TrustedDevice[] {
+    if (this.cache.length > 0) return this.cache.slice();
+    return this.mockDevices();
+  }
+
+  /** Unsubscribe all listeners; call in EntryAbility.onDestroy. */
+  unsubscribeAll(): void {
+    this.listeners = [];
+    if (this.dmInstance) {
+      try {
+        this.dmInstance.off('deviceStateChange');
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  /** Synchronously look up a single device from cache. Returns null if not found. */
   getDeviceInfo(deviceId: string): TrustedDevice | null {
     for (const d of this.cache) {
       if (d.deviceId === deviceId) return d;
@@ -151,34 +193,58 @@ class DeviceManagerImpl {
     return null;
   }
 
-  /** 取本机设备 ID（占位）。真机：getLocalDeviceInfoSync().deviceId */
+  /** Returns local device ID via real API or fallback string. */
   getLocalDeviceId(): string {
+    if (this.dmInstance) {
+      try {
+        return this.dmInstance.getLocalDeviceId();
+      } catch (_e) { /* fall through */ }
+    }
     return 'local-device';
   }
 
-  /** 取本机设备名（占位）。真机：getLocalDeviceInfoSync().deviceName */
+  /** Returns local device name via real API or fallback string. */
   getLocalDeviceName(): string {
+    if (this.dmInstance) {
+      try {
+        return this.dmInstance.getLocalDeviceName();
+      } catch (_e) { /* fall through */ }
+    }
     return '本机';
   }
 
   // ─────────── private ───────────
 
-  /**
-   * 真机回调入口（W14 接入后启用）：把 deviceManager 推上来的事件转成 DeviceChangeEvent。
-   *
-   * @param data { action: 0|1|2, device: { deviceId, deviceName, deviceType, networkId } }
-   */
-  // private onDeviceStateChange(data: { action: number; device: object }): void {
-  //   const type: DeviceChangeType = data.action === 0 ? 'online' : data.action === 1 ? 'offline' : 'change';
-  //   const dev = this.toTrustedDevice(data.device);
-  //   const evt: DeviceChangeEvent = { type, device: dev };
-  //   this.cache = []; // 失效缓存
-  //   for (const cb of this.listeners) {
-  //     try { cb(evt); } catch (_) { /* ignore */ }
-  //   }
-  // }
+  private onDeviceStateChange(data: distributedDeviceManager.DeviceStateChange): void {
+    const actionMap: Record<number, DeviceChangeType> = { 0: 'online', 1: 'offline', 2: 'change' };
+    const type: DeviceChangeType = actionMap[data.action] ?? 'change';
+    const dev = toTrustedDevice(data.device, type === 'online');
+    const evt: DeviceChangeEvent = { type, device: dev };
+    // Invalidate cache on state change
+    this.cache = [];
+    this.cacheAt = 0;
+    for (const cb of this.listeners) {
+      try { cb(evt); } catch (_e) { /* ignore */ }
+    }
+  }
 
-  /** Mock 列表：模拟器 / 真机未授权时回退。 */
+  private buildLocalDevice(): TrustedDevice | null {
+    if (!this.dmInstance) return null;
+    try {
+      return {
+        deviceId: this.dmInstance.getLocalDeviceId(),
+        deviceName: this.dmInstance.getLocalDeviceName(),
+        deviceType: 'phone',
+        networkId: 'local',
+        online: true,
+        isLocal: true,
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  /** Mock list: used on simulator or when permission is not granted. */
   private mockDevices(): TrustedDevice[] {
     return [
       {

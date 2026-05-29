@@ -7,6 +7,7 @@ export type { ReadingPosition } from './ReadingSoul';
 
 // SoulEngine: only init/attach/flush/dispose surface; getInstance is intentionally internal.
 export { SoulEngine } from './SoulEngine';
+export type { SoulSnapshot } from './SoulEngine';
 
 // Schema types for consumers that need to type-check soul shapes.
 export type {

@@ -25,7 +25,8 @@ import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
 import common from '@ohos.app.ability.common';
-import { decodeTextRecord } from '../core/atomic/NfcDecoder';
+import { decodeTextRecord, parseNdef } from '../core/atomic/NfcDecoder';
+import tag from '@ohos.nfc.tag';
 import { StoreKeys } from '../store/StoreKeys';
 
 const TAG = 'LookupAbility';
@@ -127,8 +128,21 @@ export default class LookupAbility extends UIAbility {
       }
     }
 
-    // 2) NFC TAG_FOUND：从 want 中拿 NDEF
+    // 2) NFC TAG_FOUND：优先用 @ohos.nfc.tag.NdefTag 真实解析，fallback 到字节流解析
     if (want.action === 'ohos.nfc.tag.action.TAG_FOUND') {
+      try {
+        const ndefTag = tag.getNdef(want);
+        if (ndefTag) {
+          const result = parseNdef(ndefTag);
+          if (result.word && result.word.length > 0) {
+            out.word = result.word;
+            out.context = result.context ?? '';
+            out.source = 'nfc';
+            return out;
+          }
+        }
+      } catch (_e) { /* fallback below */ }
+      // fallback：从 want.parameters bytes 解析
       const decoded = decodeTextRecord(want);
       if (decoded && decoded.length > 0) {
         out.word = decoded;

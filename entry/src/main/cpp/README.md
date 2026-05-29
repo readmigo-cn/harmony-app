@@ -68,6 +68,22 @@ is hand-rolled — no external JSON dependency.
 Returned coordinates are paragraph-relative: `charOffset` is the code-point
 offset within the source block, **not** within the run.
 
+## NAPI header and library resolution
+
+CMakeLists.txt uses `OHOS_SDK_NATIVE_ROOT` (set automatically by DevEco/hvigorw) to
+switch between the two compile environments:
+
+| Environment | `OHOS_SDK_NATIVE_ROOT` | NAPI headers | `libace_napi.z.so` |
+|---|---|---|---|
+| DevEco / hvigorw | set | `<sdk>/native/sysroot/usr/include` | linked; resolved by HarmonyOS dynamic linker at runtime |
+| Local desktop (CLion / CLI) | not set | `napi-bridge/stubs/` | **not linked** — link fails on purpose; `.o` compilation succeeds |
+
+The stub headers at `napi-bridge/stubs/napi/` declare the NAPI ABI so sources
+compile locally without the full SDK. The dynamic link step fails because no
+stub `.so` exists — this is expected and caught by `cmake --build . -- -k`
+(continue-on-error). On-device, `libace_napi.z.so` is a system library; it does
+**not** need to be bundled inside the HAP.
+
 ## Building
 
 ### Production (DevEco Studio)

@@ -2,6 +2,7 @@
 // Facade over SoulEngine / LocalFallback; the canonical API for reading-progress state.
 
 import { SoulEngine } from './SoulEngine';
+import type { SoulSnapshot } from './SoulEngine';
 import { LocalFallback } from './LocalFallback';
 import type { ReadingSoul as ReadingSoulShape } from './SoulSchema';
 import type { SoulListener } from './SoulEngine';
@@ -112,6 +113,42 @@ export class ReadingSoul {
       const u3 = LocalFallback.subscribe<number>(PATH_PAGE, (v) => { (state as { pageIdx: number }).pageIdx = v; emit(); });
       const u4 = LocalFallback.subscribe<number>(PATH_CHAR, (v) => { (state as { charOffset: number }).charOffset = v; emit(); });
       return () => { u1(); u2(); u3(); u4(); };
+    }
+  }
+
+  /**
+   * Capture the current soul cache as an opaque snapshot for cross-device continuation.
+   * Called by ContinuationManager before handing off to the target device.
+   * @since W5
+   */
+  static snapshot(): SoulSnapshot {
+    const engine = ReadingSoul.engine;
+    // Access internal cache via a type cast — ReadingSoul is a trusted L1 peer.
+    const raw = (engine as unknown as { cache: Map<string, unknown> }).cache;
+    const cacheRecord: Record<string, { value: unknown; ts: import('./SoulEngine').LamportTs }> = {};
+    raw.forEach((v, k) => {
+      cacheRecord[k] = v as { value: unknown; ts: import('./SoulEngine').LamportTs };
+    });
+    return {
+      sessionId: (engine as unknown as { sessionId: string }).sessionId,
+      cache: cacheRecord,
+      capturedAtMs: Date.now(),
+    };
+  }
+
+  /**
+   * Restore a snapshot captured on the source device. Applies all cached entries
+   * using LWW so existing newer local state is not overwritten.
+   * Called by ContinuationManager on the receiving device.
+   * @since W5
+   */
+  static async restore(snapshot: SoulSnapshot): Promise<void> {
+    const engine = ReadingSoul.engine;
+    for (const [path, entry] of Object.entries(snapshot.cache)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const typed = entry as { value: unknown; ts: import('./SoulEngine').LamportTs };
+      // update() already performs LWW comparison against the local cache.
+      await engine.update(path, typed.value);
     }
   }
 }

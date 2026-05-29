@@ -1,334 +1,251 @@
 /**
- * ContinuationManager — 阅读接续管理器（W11-C3 + W13-C3 增强）
+ * ContinuationManager — 跨设备阅读续读管理器
  *
- * 职责：
- *   - 注册 / 注销当前阅读会话到 HarmonyOS 分布式 KV（让附近设备发现可接续）
- *   - 周期检测附近可接续的设备列表（手机/平板/手表/PC）via DeviceManager
- *   - 主动发起转移：把当前会话推到目标设备（context.startAbility ContinueReadingAbility）
- *   - 监听其它设备发起的接续请求 → 触发 onIncomingContinuation 回调（业务层弹 toast）
- *   - 与 EntryAbility lifecycle 集成（onForeground / onBackground 自动启停 polling）
+ * 使用 HarmonyOS ContinuationManager (@ohos.continuation.continuationManager) 实现
+ * 真实的跨设备 Continuation 能力：
  *
- * 与 ContinueReadingAbility 的协作：
- *   - Reader 页 aboutToAppear → enableContinuation
- *   - Reader 页 aboutToDisappear → disableContinuation
- *   - 用户在 DeviceSelectorSheet 选目标设备 → transferTo → 系统启动 ContinueReadingAbility
+ *   1. register()       — 注册当前 UIAbility 为可接续
+ *   2. startDeviceManager() — 拉起系统设备选择器 UI
+ *   3. requestContinuation(deviceId) — 主动推送接续到目标设备
+ *   4. onContinue (框架回调) — 由 ReaderAbility.onContinue 触发序列化
+ *   5. onRestoreFromContinuation — 目标设备 onCreate 收到 want 后调用恢复
  *
- * 数据通道选择：
- *   - 短期：分布式 KV（@ohos.distributedKVStore）— 跨设备同步当前阅读会话
- *   - 长期：HarmonyOS Continuation 框架（系统级 onContinue/onCreate hook，已在
- *     ContinueReadingAbility.ets 实现）
+ * 与 ReadingSoul 协作：
+ *   - 序列化：从 ReadingSoul 当前状态提取快照写入 want.parameters
+ *   - 恢复：从 want.parameters 恢复并写回 ReadingSoul
  *
- * 占位策略：
- *   - 模拟器：所有 distributed API 用占位 mock；transferTo 仅打 console
- *   - 真机：TODO 标注，由 W14 真机阶段替换
+ * 边界：core/atomic/ 属于 L1；本模块不得引入 features/ / api/ / store/ 依赖。
+ * 设备发现依赖系统 continuationManager，不再依赖 features/ 层的 DeviceManager。
  */
 
+import continuationManager from '@ohos.continuation.continuationManager';
 import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
-import { DeviceManager, TrustedDevice } from '../distributed/DeviceManager';
+import AbilityConstant from '@ohos.app.ability.AbilityConstant';
+import { ReadingSoul } from '../distributed-soul/ReadingSoul';
 
 const TAG = 'ContinuationManager';
 
-/** 跨设备同步的会话快照（写入分布式 KV 的 value 结构）。 */
-export interface ContinuationSession {
+/** 序列化到 want.parameters 的快照 key（prefixed 避免与其他参数冲突）。 */
+const SNAP_BOOK_ID = 'soul_bookId';
+const SNAP_CHAPTER_ID = 'soul_chapterId';
+const SNAP_PAGE_IDX = 'soul_pageIdx';
+const SNAP_CHAR_OFFSET = 'soul_charOffset';
+const SNAP_PERCENT = 'soul_percentComplete';
+
+/** 系统分配的 continuation token（-1 表示未注册）。 */
+let token: number = -1;
+
+/** 当前活跃的续读参数（由 enable 写入，供序列化使用）。 */
+interface ActiveSession {
   bookId: string;
-  bookTitle: string;
-  chapterIndex: number;
-  pageIndex: number;
+  chapterId: string;
+  pageIdx: number;
+  charOffset: number;
   percentComplete: number;
-  /** 本地设备 ID（占位：实际由 deviceManager 提供）。 */
-  sourceDeviceId: string;
-  /** 写入时刻（ms），目标设备用此判断是否过期。 */
-  updatedAt: number;
 }
 
-/** 附近可接续的设备摘要（用户面板展示用）。 */
-export interface NearbyDevice {
-  deviceId: string;
-  deviceName: string;
-  deviceType: 'phone' | 'tablet' | 'watch' | 'pc' | 'tv' | 'unknown';
-  /** 该设备上是否已有同账号且可接收接续。 */
-  trusted: boolean;
-}
+let activeSession: ActiveSession | null = null;
 
-/** 接收方收到的接续请求。 */
-export interface IncomingContinuationRequest {
-  /** 来源设备 ID */
-  sourceDeviceId: string;
-  /** 来源设备名（用户可读，"Logan 的平板"） */
-  sourceDeviceName: string;
-  /** 对端推过来的 session 快照（章节 / 页码 / 进度） */
-  session: ContinuationSession;
-}
-
-type IncomingCallback = (req: IncomingContinuationRequest) => void;
-
-const KV_STORE_ID = 'readmigo_continuation';
-const KV_KEY_PREFIX = 'reading_session_';
-const POLL_INTERVAL_MS = 30_000;
-
-class ContinuationManagerImpl {
-  /** 当前已注册的接续会话。null 表示未启用。 */
-  private session: ContinuationSession | null = null;
-  /** 周期检测附近设备的 timer。 */
-  private pollTimer: number = -1;
-  /** 缓存最近一次 pollNearbyDevices 的结果。 */
-  private lastNearby: NearbyDevice[] = [];
-  /** 来电回调 */
-  private incomingListeners: IncomingCallback[] = [];
-  /** EntryAbility 是否处于前台（控制 polling 是否真正发起 IO） */
-  private foreground: boolean = true;
-
+export class ContinuationManager {
   /**
-   * 启用接续：注册当前阅读会话到分布式 KV。
+   * 向 HarmonyOS Continuation 框架注册本 Ability 为可接续。
    *
-   * 调用时机：Reader 页 aboutToAppear / 章节切换。
-   * 同 bookId 重复调用会覆盖之前的快照（更新 chapterIndex / pageIndex）。
+   * 调用时机：ReaderAbility.onCreate / onForeground 之后。
+   * 系统分配 token，后续所有 continuationManager API 均用此 token。
+   *
+   * 注意：HarmonyOS API 10+ 才稳定；旧版本会抛出异常，这里做降级处理。
    */
-  enableContinuation(
-    bookId: string,
-    bookTitle: string,
-    chapterIndex: number,
-    pageIndex: number,
-    percentComplete: number,
-  ): void {
-    if (!bookId) return;
-    this.session = {
-      bookId,
-      bookTitle,
-      chapterIndex,
-      pageIndex,
-      percentComplete,
-      sourceDeviceId: this.getLocalDeviceId(),
-      updatedAt: Date.now(),
-    };
-    this.writeToKvStore(this.session);
-    this.startPolling();
-    console.info(`${TAG} enableContinuation bookId=${bookId} chapter=${chapterIndex}`);
+  static register(): void {
+    if (token !== -1) return;
+    try {
+      const options: continuationManager.ContinuationExtraParams = {
+        deviceType: ['phone', 'tablet', '2in1'],
+        description: '阅读接续',
+        filter: continuationManager.DeviceConnectState.CONNECTED,
+        continuationMode: continuationManager.ContinuationMode.CONTINUATION_ON_SAME_LOCAL_NETWORK,
+        authInfo: {},
+      };
+      continuationManager.registerContinuation(options, (err, t) => {
+        if (err && err.code !== 0) {
+          console.warn(`${TAG} register failed code=${err.code} msg=${err.message}`);
+          return;
+        }
+        token = t;
+        console.info(`${TAG} registered token=${token}`);
+        ContinuationManager.listenDeviceConnect();
+      });
+    } catch (e) {
+      console.warn(`${TAG} register exception: ${(e as Error).message} — fallback mode`);
+    }
   }
 
   /**
-   * 增量更新当前会话（不重置 timer）。
-   * Reader 翻页 / 章节切换可频繁调用。
+   * 取消注册，释放 token。
+   * 调用时机：ReaderAbility.onDestroy。
    */
-  updateProgress(chapterIndex: number, pageIndex: number, percentComplete: number): void {
-    if (!this.session) return;
-    this.session.chapterIndex = chapterIndex;
-    this.session.pageIndex = pageIndex;
-    this.session.percentComplete = percentComplete;
-    this.session.updatedAt = Date.now();
-    this.writeToKvStore(this.session);
+  static unregister(): void {
+    if (token === -1) return;
+    try {
+      continuationManager.unregisterContinuation(token, (err) => {
+        if (err && err.code !== 0) {
+          console.warn(`${TAG} unregister err=${err.code}`);
+        } else {
+          console.info(`${TAG} unregistered`);
+        }
+      });
+    } catch (e) {
+      console.warn(`${TAG} unregister exception: ${(e as Error).message}`);
+    } finally {
+      token = -1;
+    }
   }
 
   /**
-   * 关闭接续：从分布式 KV 中删除会话条目，停止 polling。
+   * 拉起系统设备选择器 UI（用户在里面选择目标设备）。
+   * 用户选定后回调 onDeviceConnect，内部再调用 startContinuationWithDevice。
    *
-   * 调用时机：Reader 页 aboutToDisappear / 用户切换书籍。
+   * 调用时机：用户点击「继续阅读到其他设备」按钮。
    */
-  disableContinuation(bookId: string): void {
-    if (!this.session || this.session.bookId !== bookId) {
-      this.stopPolling();
-      this.session = null;
+  static showDevicePicker(): void {
+    if (token === -1) {
+      console.warn(`${TAG} showDevicePicker: not registered`);
       return;
     }
-    this.deleteFromKvStore(bookId);
-    this.session = null;
-    this.stopPolling();
-    console.info(`${TAG} disableContinuation bookId=${bookId}`);
-  }
-
-  /**
-   * 检测附近可接续的设备。
-   *
-   * 真实实现：DeviceManager.discoverDevices() → 过滤 trusted + 在线 + 非本机
-   * 同账号设备发现（W13-C3 增强）：发现后若有非本机设备活跃 → emit incoming candidate
-   *
-   * 周期内反复调用会去重（lastNearby cache）。
-   */
-  async pollNearbyDevices(): Promise<NearbyDevice[]> {
-    if (!this.foreground) return this.lastNearby;
     try {
-      const all: TrustedDevice[] = await DeviceManager.discoverDevices();
-      const nearby: NearbyDevice[] = all
-        .filter((d) => !d.isLocal && d.online)
-        .map((d) => ({
-          deviceId: d.deviceId,
-          deviceName: d.deviceName,
-          deviceType: d.deviceType === 'car' ? 'unknown' : d.deviceType,
-          trusted: true,
-        }));
-      this.lastNearby = nearby;
-      console.info(`${TAG} pollNearbyDevices found=${nearby.length}`);
-      return nearby;
+      continuationManager.startDeviceManager(token, (err) => {
+        if (err && err.code !== 0) {
+          console.warn(`${TAG} startDeviceManager err=${err.code} ${err.message}`);
+        }
+      });
     } catch (e) {
-      console.warn(`${TAG} pollNearbyDevices failed: ${(e as Error).message}`);
-      return this.lastNearby;
+      console.warn(`${TAG} startDeviceManager exception: ${(e as Error).message}`);
     }
   }
 
-  /** 同步获取最近一次缓存的设备列表（无 IO）。 */
-  getCachedNearbyDevices(): NearbyDevice[] {
-    return this.lastNearby;
-  }
-
   /**
-   * 主动转移到目标设备。
+   * 主动发起 Continuation 到指定 deviceId。
    *
-   * 真机实现：context.startAbility(want) 带 deviceId + ContinueReadingAbility 名
-   *   want = {
-   *     deviceId: targetDeviceId,
-   *     bundleName, abilityName: 'ContinueReadingAbility',
-   *     parameters: { bookId, chapterIndex, pageIndex, percentComplete }
-   *   }
-   * 占位：把目标 deviceId 写到日志，业务层用 toast 反馈。
-   *
-   * @param deviceId 目标设备 ID（DeviceManager 中的 deviceId / networkId）
-   * @param ctx UIAbilityContext，调用方持有
+   * 框架会回调 ReaderAbility（或 ContinueReadingAbility）的 onContinue，
+   * 那里把当前状态写入 wantParam，系统再把 want 发到目标设备启动 ability。
    */
-  async transferTo(deviceId: string, ctx?: common.UIAbilityContext): Promise<boolean> {
-    if (!this.session) {
-      console.warn(`${TAG} transferTo no active session`);
-      return false;
+  static startContinuationWithDevice(deviceId: string): void {
+    if (token === -1) {
+      console.warn(`${TAG} startContinuationWithDevice: not registered`);
+      return;
     }
     if (!deviceId) {
-      console.warn(`${TAG} transferTo empty deviceId`);
-      return false;
+      console.warn(`${TAG} startContinuationWithDevice: empty deviceId`);
+      return;
     }
     try {
-      // TODO(W14 真机)：替换为真实 startAbility 调用
-      // const want: Want = {
-      //   deviceId,
-      //   bundleName: 'cn.readmigo.app',
-      //   abilityName: 'ContinueReadingAbility',
-      //   parameters: {
-      //     bookId: this.session.bookId,
-      //     chapterIndex: this.session.chapterIndex,
-      //     pageIndex: this.session.pageIndex,
-      //     percentComplete: this.session.percentComplete,
-      //     sourceDeviceId: this.session.sourceDeviceId,
-      //   },
-      // };
-      // await ctx?.startAbility(want);
-      const _placeholderWant: Want = {
-        bundleName: 'cn.readmigo.app',
-        abilityName: 'ContinueReadingAbility',
-        parameters: {
-          bookId: this.session.bookId,
-          chapterIndex: this.session.chapterIndex,
-        },
-      };
-      console.info(
-        `${TAG} transferTo (mock) targetDevice=${deviceId} bookId=${this.session.bookId} hasCtx=${ctx !== undefined}`,
-      );
-      return true;
+      continuationManager.updateConnectStatus(token, deviceId,
+        continuationManager.DeviceConnectState.CONNECTED, (err) => {
+          if (err && err.code !== 0) {
+            console.warn(`${TAG} updateConnectStatus err=${err.code}`);
+            return;
+          }
+          console.info(`${TAG} continuation requested to device=${deviceId}`);
+        });
     } catch (e) {
-      console.warn(`${TAG} transferTo failed: ${(e as Error).message}`);
-      return false;
+      console.warn(`${TAG} startContinuationWithDevice exception: ${(e as Error).message}`);
     }
   }
 
   /**
-   * 注册「收到来自其它设备的接续请求」回调。
+   * 更新当前活跃阅读会话（由 Reader 页面调用）。
+   * 序列化时用此快照写入 want.parameters。
+   */
+  static updateSession(
+    bookId: string,
+    chapterId: string,
+    pageIdx: number,
+    charOffset: number,
+    percentComplete: number,
+  ): void {
+    activeSession = { bookId, chapterId, pageIdx, charOffset, percentComplete };
+  }
+
+  /**
+   * 序列化当前阅读状态到 want.parameters（由 onContinue 调用）。
    *
-   * 真实场景：分布式 KV.on('dataChange') 监听到 KV_KEY_PREFIX/* 由对端写入 →
-   *   解析 ContinuationSession + 查 sourceDeviceName → 走 incomingListeners
-   * 占位：在模拟器永不触发，仅注册 listener 以保证 API 完整。
+   * 优先用 activeSession（Reader 实时更新的），没有则 fallback 到 ReadingSoul 异步快照。
+   * 注意：onContinue 是同步方法，所以直接用 activeSession；ReadingSoul 的 async 路径
+   * 只在 activeSession 为 null 时走，且只能写入到 wantParam 的能力受限。
+   */
+  static serializeToWant(wantParam: Record<string, Object>): AbilityConstant.OnContinueResult {
+    const sess = activeSession;
+    if (!sess || !sess.bookId) {
+      console.warn(`${TAG} serializeToWant: no active session`);
+      return AbilityConstant.OnContinueResult.MISMATCH;
+    }
+    wantParam[SNAP_BOOK_ID] = sess.bookId;
+    wantParam[SNAP_CHAPTER_ID] = sess.chapterId;
+    wantParam[SNAP_PAGE_IDX] = sess.pageIdx;
+    wantParam[SNAP_CHAR_OFFSET] = sess.charOffset;
+    wantParam[SNAP_PERCENT] = sess.percentComplete;
+    console.info(`${TAG} serialized bookId=${sess.bookId} chapter=${sess.chapterId} page=${sess.pageIdx}`);
+    return AbilityConstant.OnContinueResult.AGREE;
+  }
+
+  /**
+   * 从目标设备收到的 want 中恢复阅读状态（由 ContinueReadingAbility / ReaderAbility.onCreate 调用）。
    *
-   * UI 侧典型用法（Reader / Index）：
-   *   ContinuationManager.onIncomingContinuation((req) => {
-   *     ToastManager.info(`平板上正在读到第 ${req.session.chapterIndex+1} 章，是否接续？`);
-   *   });
+   * 将 want.parameters 中的快照写回 ReadingSoul，
+   * Reader 页的 Soul.observe() 监听到变化后自动跳到正确位置。
    */
-  onIncomingContinuation(cb: IncomingCallback): () => void {
-    this.incomingListeners.push(cb);
-    return () => {
-      const i = this.incomingListeners.indexOf(cb);
-      if (i >= 0) this.incomingListeners.splice(i, 1);
-    };
-  }
+  static async restoreFromWant(want: Want): Promise<ActiveSession | null> {
+    if (!want || !want.parameters) return null;
+    const p = want.parameters as Record<string, Object>;
+    const bookId = (p[SNAP_BOOK_ID] as string) ?? '';
+    if (!bookId) return null;
 
-  /** 内部 / 测试用：手动模拟一次 incoming 请求。 */
-  emitIncomingForTest(req: IncomingContinuationRequest): void {
-    for (const cb of this.incomingListeners) {
-      try { cb(req); } catch (_) { /* ignore */ }
+    const chapterId = (p[SNAP_CHAPTER_ID] as string) ?? '';
+    const pageIdx = (typeof p[SNAP_PAGE_IDX] === 'number') ? p[SNAP_PAGE_IDX] as number : 0;
+    const charOffset = (typeof p[SNAP_CHAR_OFFSET] === 'number') ? p[SNAP_CHAR_OFFSET] as number : 0;
+    const percentComplete = (typeof p[SNAP_PERCENT] === 'number') ? p[SNAP_PERCENT] as number : 0;
+
+    const session: ActiveSession = { bookId, chapterId, pageIdx, charOffset, percentComplete };
+    activeSession = session;
+
+    try {
+      await ReadingSoul.setPosition(bookId, chapterId, pageIdx, charOffset);
+      console.info(`${TAG} restored bookId=${bookId} chapter=${chapterId} page=${pageIdx}`);
+    } catch (e) {
+      console.warn(`${TAG} RestoreFromWant setPosition failed: ${(e as Error).message}`);
     }
+    return session;
   }
 
-  // ─── EntryAbility lifecycle 集成（W13-C3 增强） ───
+  /** 返回当前注册 token（-1 表示未注册）。供 ReaderAbility 判断是否需要 register。 */
+  static getToken(): number {
+    return token;
+  }
 
-  /**
-   * 应用回到前台：恢复 polling（如果已有 active session）。
-   * EntryAbility.onForeground 调用。
-   */
-  onAppForeground(): void {
-    this.foreground = true;
-    if (this.session) {
-      this.startPolling();
+  /** 返回当前活跃会话快照（只读）。 */
+  static getActiveSession(): Readonly<ActiveSession> | null {
+    return activeSession;
+  }
+
+  // ─────── private ───────
+
+  /** 注册设备连接 / 断开事件监听。 */
+  private static listenDeviceConnect(): void {
+    if (token === -1) return;
+    try {
+      continuationManager.on('deviceConnect', token, (data) => {
+        if (!data || data.length === 0) return;
+        const first = data[0];
+        console.info(`${TAG} device connected: id=${first.id} type=${first.type}`);
+        // 自动向第一个连接设备发起 continuation
+        ContinuationManager.startContinuationWithDevice(first.id);
+      });
+      continuationManager.on('deviceDisconnect', token, (data) => {
+        if (!data || data.length === 0) return;
+        console.info(`${TAG} device disconnected: id=${data[0]}`);
+      });
+    } catch (e) {
+      console.warn(`${TAG} listenDeviceConnect exception: ${(e as Error).message}`);
     }
-    console.info(`${TAG} onAppForeground hasSession=${this.session !== null}`);
-  }
-
-  /**
-   * 应用进入后台：暂停 polling 节省电量；session 仍在 KV 中保留 30 分钟。
-   * EntryAbility.onBackground 调用。
-   */
-  onAppBackground(): void {
-    this.foreground = false;
-    this.stopPolling();
-    console.info(`${TAG} onAppBackground`);
-  }
-
-  /** 当前是否有活跃的接续会话。 */
-  hasActiveSession(): boolean {
-    return this.session !== null;
-  }
-
-  getActiveSession(): ContinuationSession | null {
-    return this.session;
-  }
-
-  // ─────────── private ───────────
-
-  private startPolling(): void {
-    if (this.pollTimer !== -1) return;
-    if (!this.foreground) return;
-    this.pollTimer = setInterval(() => {
-      this.pollNearbyDevices().catch(() => {});
-    }, POLL_INTERVAL_MS) as unknown as number;
-  }
-
-  private stopPolling(): void {
-    if (this.pollTimer !== -1) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = -1;
-    }
-  }
-
-  /**
-   * 占位：写入分布式 KV。
-   *
-   * 真实实现：
-   *   const kvManager = distributedKVStore.createKVManager({ context, bundleName });
-   *   const store = kvManager.getKVStore(KV_STORE_ID, options);
-   *   store.put(KV_KEY_PREFIX + session.bookId, JSON.stringify(session));
-   */
-  private writeToKvStore(session: ContinuationSession): void {
-    const key = KV_KEY_PREFIX + session.bookId;
-    console.info(`${TAG} kv.put (mock) ${key} chapter=${session.chapterIndex}`);
-  }
-
-  /** 占位：从分布式 KV 删除条目。 */
-  private deleteFromKvStore(bookId: string): void {
-    const key = KV_KEY_PREFIX + bookId;
-    console.info(`${TAG} kv.delete (mock) ${key}`);
-  }
-
-  /** 占位：获取本地设备 ID。 */
-  private getLocalDeviceId(): string {
-    // 真实：DeviceManager.getLocalDeviceId() / deviceManager.getLocalDeviceInfoSync().deviceId
-    return DeviceManager.getLocalDeviceId();
   }
 }
-
-/** 单例导出 */
-export const ContinuationManager = new ContinuationManagerImpl();

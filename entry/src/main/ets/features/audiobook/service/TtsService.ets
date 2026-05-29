@@ -30,15 +30,11 @@ import { SettingsStore } from '../../../store/SettingsStore';
 
 // ---------- 公共类型 ----------
 
-export type TtsProvider = 'huawei-system' | 'xunfei' | 'aliyun';
+import type { Voice, VoiceProvider } from '../../../model/Voice';
+export type { Voice, VoiceProvider } from '../../../model/Voice';
 
-export interface Voice {
-  id: string;
-  name: string;
-  lang: string;
-  gender: 'male' | 'female' | 'neutral';
-  provider: TtsProvider;
-}
+/** @deprecated use VoiceProvider from model/Voice */
+export type TtsProvider = VoiceProvider;
 
 export interface TtsSpeakOptions {
   /** 强制 voice，覆盖 setVoice */

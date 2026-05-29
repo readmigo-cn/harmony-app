@@ -1,15 +1,17 @@
 /**
- * SyncEngine.ets — W10-C5 通用云同步引擎
+ * SyncEngine.ets — W10-C5 通用云同步引擎 (W5 Soul-wired)
  *
  * 是 W7 ProgressSync（仅 reading-progress 单 entity）的通用化版本。
  * 支持注册多个 EntitySyncer，按 entityType 共享同一套调度策略：
  *
  *   - 启动 init() 时全量 pull（若距上次 sync > IDLE_PULL_THRESHOLD 24h）
- *   - 数据变更 enqueue() → debounce 5s → 批量 push
+ *   - 数据变更 enqueue() → debounce 300ms → 批量 push（W5: 改为 300ms per mission）
  *   - 网络断开挂起，恢复后 flush
- *   - push 失败指数退避 1s/2s/4s/8s/16s/32s/60s
+ *   - push 失败指数退避 1s/2s/4s/8s max 60s
  *   - 周期后台 sync 30 min（tick）
  *   - 冲突：默认 LWW（updatedAt 比较）；syncer 可覆盖 resolveConflict
+ *   - W5 SoulBridge: flush() 同步向 SoulEngine.update() 广播；
+ *     SoulEngine 远端变更事件驱动 pull（event-driven，不 debounce）
  *
  * 服务端协议（与 server-cn 待实现的 /api/v1/sync 对齐，本任务不动后端）：
  *   POST /api/v1/sync/pull  body { entityType, since? }   → { items: T[], serverNow }
@@ -21,6 +23,7 @@
  */
 
 import connection from '@ohos.net.connection';
+import { SoulEngine } from '../../../../core/distributed-soul/SoulEngine';
 import { HttpClient } from '../../../../api/client/HttpClient';
 import { PreferencesManager } from '../../../../core/persistence/PreferencesManager';
 
@@ -83,8 +86,9 @@ interface QueueEntry {
 // 调度参数
 // ---------------------------------------------------------------------------
 
-const DEBOUNCE_MS = 5_000;
-const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000];
+// W5: push debounce reduced to 300ms for tighter real-device sync; pull is event-driven.
+const DEBOUNCE_MS = 300;
+const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 60_000];
 const PERIODIC_TICK_MS = 30 * 60 * 1000; // 30 min
 const IDLE_PULL_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24h
 const QUEUE_PREF_KEY = 'sync_engine_queue_v1';
@@ -109,15 +113,39 @@ class SyncEngineImpl {
   private inited: boolean = false;
 
   private conflictListeners: ((entityType: string, conflicts: ConflictItem<SyncableEntity>[]) => void)[] = [];
+  /** SoulEngine subscription cleanup handles (one per registered syncer). */
+  private soulUnsubscribers: Map<string, () => void> = new Map();
 
   // ─── 注册 ───────────────────────────────────────────────────────────────
 
   register<T extends SyncableEntity>(syncer: EntitySyncer<T>): void {
-    // 类型擦除存内部 map
     this.syncers.set(syncer.entityType, syncer as unknown as EntitySyncer<SyncableEntity>);
     if (!this.queues.has(syncer.entityType)) {
       this.queues.set(syncer.entityType, new Map());
     }
+  }
+
+  /**
+   * Wire this SyncEngine to a SoulEngine so that:
+   *   1. Remote soul changes trigger event-driven pull (no debounce) for each domain.
+   *   2. flush() additionally propagates pushed items into the soul for P2P broadcast.
+   *
+   * Call after register() and before init(). Safe to call multiple times (idempotent per entityType).
+   * @since W5
+   */
+  connectSoul(engine: SoulEngine): void {
+    this.syncers.forEach((_syncer, entityType) => {
+      if (this.soulUnsubscribers.has(entityType)) return;
+      const soulPath = `sync.${entityType}`;
+      const unsub = engine.subscribe<SyncableEntity[]>(soulPath, (remoteItems) => {
+        if (!Array.isArray(remoteItems) || remoteItems.length === 0) return;
+        // Event-driven pull: remote soul change → write to syncer (if syncer supports onSync)
+        const syncer = this.syncers.get(entityType);
+        if (!syncer) return;
+        syncer.onSync?.({ pulled: remoteItems, pushed: [], conflicts: [] });
+      });
+      this.soulUnsubscribers.set(entityType, unsub);
+    });
   }
 
   // ─── 生命周期 ───────────────────────────────────────────────────────────
@@ -163,6 +191,10 @@ class SyncEngineImpl {
       this.periodicTimer = -1;
     }
     this.queues.forEach((m) => m.clear());
+    // Clean up soul subscriptions.
+    this.soulUnsubscribers.forEach((unsub) => { try { unsub(); } catch (_) { /* ignore */ } });
+    this.soulUnsubscribers.clear();
+    this.inited = false;
     await PreferencesManager.setString(QUEUE_PREF_KEY, '');
   }
 
@@ -230,6 +262,13 @@ class SyncEngineImpl {
         this.notifyConflicts(entityType, result.conflicts);
       }
       this.persistQueue();
+      // W5 SoulBridge: broadcast accepted items to soul for P2P propagation.
+      if (result.accepted.length > 0) {
+        const engine = SoulEngine.getInstance();
+        if (!engine.isFallbackMode) {
+          engine.update(`sync.${entityType}`, result.accepted).catch(() => {/* best-effort */});
+        }
+      }
       syncer.onSync?.({
         pulled: [],
         pushed: result.accepted,

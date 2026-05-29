@@ -22,7 +22,7 @@ import {
   AudioPlayerState,
 } from '../model/Audiobook';
 import { PLAYBACK_SPEEDS } from '../model/Audiobook';
-import { Voice } from '../features/audiobook/service/TtsService';
+import type { Voice } from '../model/Voice';
 
 export type AudioPlayerStateListener = (state: AudioPlayerStore) => void;
 

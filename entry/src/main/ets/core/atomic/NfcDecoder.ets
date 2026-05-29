@@ -1,21 +1,87 @@
 /**
- * NfcDecoder — NFC NDEF text record 解析（W11-C1）
+ * NfcDecoder — NFC NDEF text record 解析（W11-C1 / W5 真实化）
  *
- * 用于「碰一碰」场景：用户把贴有 NDEF 标签的卡片（如词汇卡）贴到手机背面，
- * 系统通过 ohos.nfc.tag.action.TAG_FOUND 派发 want 给 LookupAbility，
- * 我们从 want.parameters 里提取 NDEF Message → 解出 text record → 取出 word。
+ * 两个主要入口：
+ *   1. parseNdef(tagInfo)       — 从 @ohos.nfc.tag getNdefTag() 获取的标签对象解析
+ *   2. decodeTextRecord(want)   — 从 want.parameters 的 NDEF 字节流解析（兼容旧路径）
  *
- * NDEF Text Record 格式（NFC Forum RTD-Text，简化）：
+ * NDEF Text Record 格式（NFC Forum RTD-Text）：
  *   payload[0] = status byte
  *     bit 7 = encoding (0=UTF-8, 1=UTF-16)
  *     bit 5..0 = language code 长度 (n)
- *   payload[1..n] = ISO/IANA language code（如 "en", "zh"）
+ *   payload[1..n] = ISO/IANA language code（如 "en"）
  *   payload[n+1..] = 实际文本
  *
- * 模拟器无 NFC，TODO 真机验证。
+ * 模拟器无 NFC 硬件，真机验证（API 10+）。
  */
 
+import tag from '@ohos.nfc.tag';
 import Want from '@ohos.app.ability.Want';
+
+/** parseNdef 返回结果 */
+export interface NdefParseResult {
+  /** 解析出的英文单词 / 短语（若标签包含 word: 前缀则去除前缀） */
+  word?: string;
+  /** 可选的上下文句子（若标签内容包含 context: 前缀行） */
+  context?: string;
+  /** 原始文本（解析成功时赋值，便于调试） */
+  raw?: string;
+}
+
+/**
+ * 从 @ohos.nfc.tag 的 TagInfo 对象中读取 NDEF text record 并解析 word / context。
+ *
+ * 调用时机：LookupAbility.onCreate → want.action === TAG_FOUND 时，
+ *   由 tag.getNdefTag(want) 得到 NdefTag，再传入本函数。
+ *
+ * @param tagInfo  由 tag.getNdef(want) 返回的 NdefTag 实例
+ * @returns NdefParseResult；word 为 undefined 时表示解析失败
+ */
+export function parseNdef(tagInfo: tag.NdefTag): NdefParseResult {
+  if (!tagInfo) return {};
+  try {
+    const ndefMsg: tag.NdefMessage = tagInfo.getNdefMessage();
+    if (!ndefMsg) return {};
+    const records: tag.NdefRecord[] = ndefMsg.getNdefRecords();
+    if (!records || records.length === 0) return {};
+
+    for (const record of records) {
+      // RTD_TEXT type byte = 0x54 ('T')
+      const typeBuf: number[] = record.recordType as unknown as number[];
+      if (!typeBuf || typeBuf.length === 0) continue;
+      if (typeBuf[0] !== 0x54) continue; // not a text record
+
+      const payloadBuf: number[] = record.payload as unknown as number[];
+      if (!payloadBuf || payloadBuf.length < 2) continue;
+      const payload = new Uint8Array(payloadBuf);
+      const text = decodeTextPayload(payload);
+      if (!text) continue;
+
+      return parseWordContext(text);
+    }
+    return {};
+  } catch (e) {
+    console.warn(`NfcDecoder.parseNdef failed: ${(e as Error).message}`);
+    return {};
+  }
+}
+
+/** 把 NDEF text record 的文本内容解析为 word / context 字段。 */
+function parseWordContext(raw: string): NdefParseResult {
+  const result: NdefParseResult = { raw };
+  const lines = raw.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  for (const line of lines) {
+    if (line.startsWith('word:')) {
+      result.word = line.slice(5).trim();
+    } else if (line.startsWith('context:')) {
+      result.context = line.slice(8).trim();
+    } else if (!result.word) {
+      // 单行标签：整行就是 word
+      result.word = line.trim();
+    }
+  }
+  return result;
+}
 
 /**
  * 从 want 里拿 NDEF Message 并解出第一个 text record 的文本内容。

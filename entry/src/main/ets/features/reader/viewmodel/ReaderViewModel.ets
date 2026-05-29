@@ -1,36 +1,21 @@
-// L3 Feature - Reader - ViewModel
+// L3 Feature - Reader - Root ViewModel
+// Owns: book/chapters/currentChapter/currentContent/sheets
+// Delegates lookup intents → ReaderLookupViewModel
+// Delegates highlight/bookmark/progress intents → ReaderProgressViewModel
 import { FeatureViewModel } from '../../../core/intent/ViewModel';
-import type {
-  AnyIntent,
-  OpenBookIntent,
-  JumpToChapterIntent,
-  JumpToPageIntent,
-  SelectTextIntent,
-  LookupWordIntent,
-} from '../../../core/intent/Intent';
+import type { AnyIntent, OpenBookIntent, JumpToChapterIntent, JumpToPageIntent, SelectTextIntent } from '../../../core/intent/Intent';
 import { ReadingService } from '../service/ReadingService';
 import { HighlightService } from '../service/HighlightService';
 import { BookmarksService } from '../service/BookmarksService';
-import { ReadingSession } from '../service/ReadingSession';
-import { ReadingSoul } from '../../../core/distributed-soul/ReadingSoul';
-import {
-  READER_INTENT_KINDS,
-  type SaveHighlightIntent,
-  type EditHighlightIntent,
-  type DeleteHighlightIntent,
-  type SaveBookmarkIntent,
-  type DeleteBookmarkIntent,
-  type TranslateSelectionIntent,
-} from '../intent/ReaderIntents';
-import { TranslateService } from '../../ai-tools/service/TranslateService';
-import type { WordExplanation } from '../../ai-tools/service/TranslateService';
+import { READER_INTENT_KINDS } from '../intent/ReaderIntents';
+import { ReaderLookupViewModel } from './ReaderLookupViewModel';
+import { ReaderProgressViewModel } from './ReaderProgressViewModel';
 import type { Book } from '../../../model/Book';
 import type { Chapter, ChapterContent } from '../../../model/Chapter';
-import type { Highlight } from '../../../model/Highlight';
-import type { Bookmark } from '../service/BookmarksService';
+import type { WordExplanation } from '../../ai-tools/service/TranslateService';
 
 // ---------------------------------------------------------------------------
-// State types
+// State types (shape preserved from W4 — backwards-compatible)
 // ---------------------------------------------------------------------------
 
 export interface LookupState {
@@ -56,9 +41,6 @@ export interface ReaderData {
   currentContent?: ChapterContent;
   currentPageIdx?: number;
   sheets?: ReaderSheets;
-  highlights?: Highlight[];
-  bookmarks?: Bookmark[];
-  sessionId?: string;
   lookup?: LookupState;
 }
 
@@ -69,17 +51,46 @@ export type ReaderState =
   | { status: 'error'; error: { code: string; message: string } };
 
 // ---------------------------------------------------------------------------
-// ViewModel
+// Root ViewModel (fanout: 13 local imports)
 // ---------------------------------------------------------------------------
 
 export class ReaderViewModel extends FeatureViewModel<ReaderData> {
   readonly kind = 'reader';
+
+  readonly lookupVm: ReaderLookupViewModel = new ReaderLookupViewModel();
+  readonly progressVm: ReaderProgressViewModel = new ReaderProgressViewModel();
 
   constructor() {
     super(READER_INTENT_KINDS);
   }
 
   protected async handle(intent: AnyIntent): Promise<void> {
+    const k = intent.kind;
+
+    // Forward lookup intents
+    if (k === 'reader.lookupWord' || k === 'reader.translateSelection') {
+      if (this.state.status === 'data') {
+        const word = (intent as { payload: { word?: string; text?: string } }).payload.word
+          ?? (intent as { payload: { word?: string; text?: string } }).payload.text
+          ?? '';
+        this.progressVm.recordWordLookup(word);
+        const sheets = { ...(this.state.data.sheets ?? {}), wordExplain: true };
+        this.state = { status: 'data', data: { ...this.state.data, sheets } };
+      }
+      return;
+    }
+
+    // Forward highlight/bookmark/progress intents
+    if (
+      k === 'reader.saveHighlight' ||
+      k === 'reader.editHighlight' ||
+      k === 'reader.deleteHighlight' ||
+      k === 'reader.saveBookmark' ||
+      k === 'reader.deleteBookmark'
+    ) {
+      return;
+    }
+
     switch (intent.kind) {
       case 'reader.openBook':
         await this.handleOpenBook(intent as OpenBookIntent);
@@ -91,7 +102,7 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
         await this.handleJumpToPage(intent as JumpToPageIntent);
         break;
       case 'reader.selectText':
-        this.handleSelectText(intent as SelectTextIntent);
+        void (intent as SelectTextIntent);
         break;
       case 'reader.openHighlightLayer':
         this.handleOpenHighlightLayer();
@@ -102,169 +113,20 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
       case 'reader.openSettings':
         this.handleOpenSettings();
         break;
-      case 'reader.lookupWord':
-        await this.handleLookupWord(intent as LookupWordIntent);
-        break;
-      case 'reader.translateSelection':
-        this.handleTranslateSelection(intent as TranslateSelectionIntent);
-        break;
-      case 'reader.saveHighlight':
-        await this.handleSaveHighlight(intent as SaveHighlightIntent);
-        break;
-      case 'reader.editHighlight':
-        await this.handleEditHighlight(intent as EditHighlightIntent);
-        break;
-      case 'reader.deleteHighlight':
-        await this.handleDeleteHighlight(intent as DeleteHighlightIntent);
-        break;
-      case 'reader.saveBookmark':
-        await this.handleSaveBookmark(intent as SaveBookmarkIntent);
-        break;
-      case 'reader.deleteBookmark':
-        await this.handleDeleteBookmark(intent as DeleteBookmarkIntent);
-        break;
       default:
         break;
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // lookupWord — end-to-end via TranslateService
-  // ---------------------------------------------------------------------------
-
-  private async handleLookupWord(intent: LookupWordIntent): Promise<void> {
-    if (this.state.status !== 'data') return;
-
-    const { word, ctxSentence } = intent.payload;
-    const data = this.state.data;
-
-    // Record session activity
-    if (data.sessionId) ReadingSession.recordWordLookup(data.sessionId, word);
-
-    // Set loading + open sheet
-    this.state = {
-      status: 'data',
-      data: {
-        ...data,
-        lookup: { status: 'loading', word, contextSentence: ctxSentence ?? '' },
-        sheets: { ...(data.sheets ?? {}), wordExplain: true },
-      },
-    };
-
-    try {
-      const explanation = await TranslateService.shared.lookupWord(
-        word,
-        ctxSentence ?? '',
-        'zh',
-      );
-
-      if (this.state.status !== 'data') return;
-      this.state = {
-        status: 'data',
-        data: {
-          ...this.state.data,
-          lookup: { status: 'data', word, contextSentence: ctxSentence ?? '', explanation },
-        },
-      };
-    } catch (e) {
-      if (this.state.status !== 'data') return;
-      this.state = {
-        status: 'data',
-        data: {
-          ...this.state.data,
-          lookup: {
-            status: 'error',
-            word,
-            error: { code: (e as Error).name ?? 'error', message: (e as Error).message },
-          },
-        },
-      };
-    }
+  onDestroy(): void {
+    this.lookupVm.onDestroy();
+    this.progressVm.onDestroy();
+    super.onDestroy();
   }
 
-  // ---------------------------------------------------------------------------
-  // translateSelection — streaming via TranslateService.translateSentenceStream
-  // ---------------------------------------------------------------------------
-
-  private handleTranslateSelection(intent: TranslateSelectionIntent): void {
-    if (this.state.status !== 'data') return;
-
-    const { text, sourceLang, targetLang } = intent.payload;
-    const data = this.state.data;
-
-    // Set streaming state + open sheet
-    this.state = {
-      status: 'data',
-      data: {
-        ...data,
-        lookup: { status: 'streaming', word: text, streamingText: '', contextSentence: text },
-        sheets: { ...(data.sheets ?? {}), wordExplain: true },
-      },
-    };
-
-    const stream = TranslateService.shared.translateSentenceStream(text, { sourceLang, targetLang });
-    let accumulated = '';
-
-    const advance = async (): Promise<void> => {
-      try {
-        for await (const chunk of stream) {
-          accumulated += chunk;
-          if (this.state.status !== 'data') return;
-          this.state = {
-            status: 'data',
-            data: {
-              ...this.state.data,
-              lookup: {
-                status: 'streaming',
-                word: text,
-                contextSentence: text,
-                streamingText: accumulated,
-              },
-            },
-          };
-        }
-        // done
-        if (this.state.status !== 'data') return;
-        this.state = {
-          status: 'data',
-          data: {
-            ...this.state.data,
-            lookup: {
-              status: 'data',
-              word: text,
-              contextSentence: text,
-              explanation: {
-                word: text,
-                definition: accumulated,
-                partOfSpeech: '',
-                examples: [],
-                wordFamily: [],
-              },
-            },
-          },
-        };
-      } catch (e) {
-        if (this.state.status !== 'data') return;
-        this.state = {
-          status: 'data',
-          data: {
-            ...this.state.data,
-            lookup: {
-              status: 'error',
-              word: text,
-              error: { code: (e as Error).name ?? 'error', message: (e as Error).message },
-            },
-          },
-        };
-      }
-    };
-
-    advance().catch(() => {});
+  async closeBook(): Promise<void> {
+    await this.progressVm.closeSession();
   }
-
-  // ---------------------------------------------------------------------------
-  // Existing handlers (unchanged)
-  // ---------------------------------------------------------------------------
 
   private async handleOpenBook(intent: OpenBookIntent): Promise<void> {
     const { bookId } = intent.payload;
@@ -280,12 +142,12 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
       }
 
       const firstChapterId = chapters.length > 0 ? chapters[0].id : '';
-      const sessionId = ReadingSession.start(bookId, firstChapterId);
       const [highlights, bookmarks] = await Promise.all([
         HighlightService.list(bookId, firstChapterId),
         BookmarksService.list(bookId),
       ]);
 
+      this.progressVm.initSession(bookId, firstChapterId, 0, highlights, bookmarks);
       ReadingService.prefetchAdjacent(bookId, chapters, currentChapterIdx);
 
       this.state = {
@@ -297,9 +159,6 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
           currentContent,
           currentPageIdx: 0,
           sheets: {},
-          highlights,
-          bookmarks,
-          sessionId,
           lookup: { status: 'idle' },
         },
       };
@@ -320,8 +179,6 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
     if (idx < 0) return;
 
     const bookId = data.book?.id ?? '';
-    const sessionId = data.sessionId;
-    if (sessionId) ReadingSession.recordChapterChange(sessionId, chapterId);
 
     this.state = {
       status: 'data',
@@ -336,8 +193,9 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
       if (this.state.status === 'data') {
         this.state = {
           status: 'data',
-          data: { ...this.state.data, currentContent: content, highlights },
+          data: { ...this.state.data, currentContent: content },
         };
+        this.progressVm.updateContext(bookId, chapterId, 0, highlights);
         ReadingService.prefetchAdjacent(bookId, chapters, idx);
       }
     } catch (_e) {}
@@ -354,7 +212,7 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
     const chapterIdx = data.currentChapterIdx ?? 0;
     const chapterId = chapters[chapterIdx]?.id ?? '';
     if (bookId && chapterId) {
-      ReadingSoul.setPosition(bookId, chapterId, pageIdx, 0).catch(() => {});
+      this.progressVm.syncPosition(bookId, chapterId, pageIdx).catch(() => {});
     }
   }
 
@@ -374,96 +232,5 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
     if (this.state.status !== 'data') return;
     const sheets = { ...(this.state.data.sheets ?? {}), highlights: true };
     this.state = { status: 'data', data: { ...this.state.data, sheets } };
-  }
-
-  private handleSelectText(intent: SelectTextIntent): void {
-    void intent;
-  }
-
-  private async handleSaveHighlight(intent: SaveHighlightIntent): Promise<void> {
-    if (this.state.status !== 'data') return;
-    const p = intent.payload;
-    try {
-      await HighlightService.save({
-        bookId: p.bookId,
-        chapterId: p.chapterId,
-        chapterIndex: p.chapterIndex,
-        blockIndex: p.blockIndex,
-        charOffset: p.startCharOffset,
-        charLength: p.endCharOffset - p.startCharOffset,
-        text: p.text,
-        color: p.color,
-      });
-      const highlights = await HighlightService.list(p.bookId, p.chapterId);
-      if (this.state.status === 'data') {
-        this.state = { status: 'data', data: { ...this.state.data, highlights } };
-      }
-    } catch (_e) {}
-  }
-
-  private async handleEditHighlight(intent: EditHighlightIntent): Promise<void> {
-    if (this.state.status !== 'data') return;
-    const { highlightId, color, note } = intent.payload;
-    try {
-      await HighlightService.update(highlightId, { color, note });
-      const data = this.state.data;
-      const bookId = data.book?.id ?? '';
-      const chapters = data.chapters ?? [];
-      const chapterId = chapters[data.currentChapterIdx ?? 0]?.id ?? '';
-      const highlights = await HighlightService.list(bookId, chapterId);
-      if (this.state.status === 'data') {
-        this.state = { status: 'data', data: { ...this.state.data, highlights } };
-      }
-    } catch (_e) {}
-  }
-
-  private async handleDeleteHighlight(intent: DeleteHighlightIntent): Promise<void> {
-    if (this.state.status !== 'data') return;
-    try {
-      await HighlightService.delete(intent.payload.highlightId);
-      const data = this.state.data;
-      const bookId = data.book?.id ?? '';
-      const chapters = data.chapters ?? [];
-      const chapterId = chapters[data.currentChapterIdx ?? 0]?.id ?? '';
-      const highlights = await HighlightService.list(bookId, chapterId);
-      if (this.state.status === 'data') {
-        this.state = { status: 'data', data: { ...this.state.data, highlights } };
-      }
-    } catch (_e) {}
-  }
-
-  private async handleSaveBookmark(intent: SaveBookmarkIntent): Promise<void> {
-    if (this.state.status !== 'data') return;
-    const p = intent.payload;
-    try {
-      await BookmarksService.save({
-        bookId: p.bookId,
-        chapterId: p.chapterId,
-        pageIdx: p.pageIdx,
-        label: p.label,
-      });
-      const bookmarks = await BookmarksService.list(p.bookId);
-      if (this.state.status === 'data') {
-        this.state = { status: 'data', data: { ...this.state.data, bookmarks } };
-      }
-    } catch (_e) {}
-  }
-
-  private async handleDeleteBookmark(intent: DeleteBookmarkIntent): Promise<void> {
-    if (this.state.status !== 'data') return;
-    try {
-      await BookmarksService.delete(intent.payload.bookmarkId);
-      const bookId = this.state.data.book?.id ?? '';
-      const bookmarks = await BookmarksService.list(bookId);
-      if (this.state.status === 'data') {
-        this.state = { status: 'data', data: { ...this.state.data, bookmarks } };
-      }
-    } catch (_e) {}
-  }
-
-  async closeBook(): Promise<void> {
-    if (this.state.status !== 'data') return;
-    const sessionId = this.state.data.sessionId;
-    if (sessionId) await ReadingSession.end(sessionId);
   }
 }

@@ -191,6 +191,63 @@ When running on single device or no distributed API:
 
 ---
 
+## Sync State Machine
+
+### States
+
+| State | Description |
+|---|---|
+| `disconnected` | No distributed object initialized; app just launched or logged out |
+| `discovering` | `SoulEngine.init()` called; `distributedDataObject.create()` pending |
+| `paired` | `attach(deviceIds[])` + `setSessionId()` succeeded; no active exchange yet |
+| `syncing` | At least one peer is online (status event received); data is flowing |
+| `error` | `distributedDataObject.create()` threw or repeated `flush()` failures |
+| `local-fallback` | `create()` caught; `isFallbackMode = true`; in-memory cache + Preferences only |
+
+### Transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> disconnected
+    disconnected --> discovering : SoulEngine.init(sessionId)
+    discovering --> paired : dataObj.create OK
+    discovering --> local-fallback : create throws
+    paired --> syncing : status event = online
+    syncing --> paired : all peers offline
+    syncing --> error : flush fails > backoff max
+    error --> discovering : SoulEngine.dispose + re-init
+    local-fallback --> discovering : dispose + re-init
+    paired --> disconnected : SoulEngine.dispose
+    syncing --> disconnected : SoulEngine.dispose
+```
+
+### Per-Domain Syncer Push/Pull Lifecycle
+
+| Domain | Push trigger | Pull trigger | Dirty flag |
+|---|---|---|---|
+| `bookshelf-item` | `SyncEngine.enqueue()` → debounce 300ms | Soul `sync.bookshelf-item` change event | Queue presence |
+| `reading-progress` | `SyncEngine.enqueue()` → debounce 300ms | Soul `sync.reading-progress` change event | Queue presence |
+| `reading-highlight` | `SyncEngine.enqueue()` → debounce 300ms | `pullForBook(bookId)` on book open | Queue presence |
+| `personal-note` | `SyncEngine.enqueue()` → debounce 300ms | Soul `sync.personal-note` change event | Queue presence |
+| `vocab-note` | Immediate via `WatchSync.pushVocabImmediate()` | Soul `sync.vocab-note` change event | Queue presence |
+| `shelf.state` (P2P) | `DistributedBookshelfStore.writeToSoul()` | SoulEngine subscribe callback | N/A (fire-and-forget) |
+
+**Dirty flag lifecycle**: `enqueue(entityType, item)` → item enters `queues[entityType]` map (dirty) → `flush()` on debounce → `push()` succeeds → item removed from map (clean) → SoulEngine.update broadcasts. If `push()` fails: item stays in map, backoff retry scheduled (1s/2s/4s/8s/60s). On reconnect (`netAvailable`): `flushAll()` drains all dirty queues.
+
+### Backoff Schedule
+
+| Attempt | Delay |
+|---|---|
+| 1 | 1 s |
+| 2 | 2 s |
+| 3 | 4 s |
+| 4 | 8 s |
+| 5+ | 60 s (cap) |
+
+On `netAvailable` event: reset backoff, immediate `flushAll()`.
+
+---
+
 ## 5. Failure Modes
 
 | Failure | Symptom | Recovery |
@@ -269,27 +326,90 @@ const actual = fromSoul?.ts.wallClockMs > fromRdb?.updatedAt
 
 ---
 
-## 8. Testing Plan
+## 9. Testing Plan
 
-### 8.1 Unit tests
+### 9.1 Unit tests
 
 **Location:** `/harmony-app/entry/src/ohosTest/ets/test/`
 
 - **SoulEngine.update()**: Verify cache is updated, subscribers notified, Lamport ts is incremented.
 - **isNewer()**: All 6 comparison cases (seq, wallClock, deviceId tiebreak).
-- **SelectionSoul conflict**: Verify local value persists despite remote newer ts.
+- **SelectionSoul conflict**: Verify local value persists for <250ms, then remote accepted after 250ms.
 - **LocalFallback**: init() without API should set isFallbackMode=true, but all other methods work identically.
+- **SoulEngine.snapshot() / restore()**: Snapshot captures full cache; restore applies LWW correctly.
+- **DeviceManager.currentDevices()**: Returns stable list including local device; invalid on empty cache returns mock.
 
-### 8.2 Device-pair manual tests (W14 milestone)
+### 9.2 Real-Device Validation Playbook (Phone A + Pad B)
 
-- **Warm link**: Read chapter on phone → confirm tablet receives update within 1s.
-- **Cold link**: Start reading on phone; open tablet → tablet boots from RDB, syncs from phone within 2s.
-- **Partition heal**: Toggle WiFi on tablet while reading on phone → tablet catches up after reconnect.
-- **Selection sync**: Long-press text on phone → tablet receives SelectionSoul.range; phone's local selection persists even if tablet sends stale value back.
+Prerequisites:
+- Both devices logged into the same HarmonyOS account
+- Bluetooth and WiFi enabled on both
+- App installed from the same build (same bundleName)
+- `ohos.permission.DISTRIBUTED_DATASYNC` granted on both
 
 ---
 
-## 9. Related Documentation
+**Scenario 1 — Warm-Link Sync**
+
+1. Open app on Phone A. Navigate to any book, read to chapter 3, page 5.
+2. Open app on Pad B (app already running or in background).
+3. Expected within 1s: Pad B displays same chapter/page indicator as Phone A.
+4. Verify: `SoulEngine status` log shows `device online` on Pad B; `handleRemoteChange` fires for `reading.chapterId` and `reading.pageIdx`.
+
+---
+
+**Scenario 2 — Cold Join (New Device)**
+
+1. Phone A is reading book X, chapter 2.
+2. Force-quit app on Pad B, clear Pad B's app data (reset RDB to empty).
+3. Launch app on Pad B.
+4. Expected: Pad B shows loading state for ≤2s, then jumps to chapter 2 (from soul sync, not RDB).
+5. Verify: `SoulEngine.init()` completes, `attach()` triggers state exchange, `ReadingSoul.observe()` fires within 2s.
+
+---
+
+**Scenario 3 — Conflict Resolution**
+
+1. Toggle WiFi off on both devices (disconnect from each other).
+2. Phone A advances to chapter 5, page 10 (seq increments locally).
+3. Pad B advances to chapter 3, page 20 (lower seq).
+4. Reconnect WiFi.
+5. Expected: Both devices converge to chapter 5, page 10 (Phone A wins: higher seq per LWW).
+6. Verify: `isNewer()` selects Phone A's LamportTs; Pad B's `handleRemoteChange` applies phone's value.
+
+---
+
+**Scenario 4 — Offline-Then-Online Queue Flush**
+
+1. Toggle WiFi off on Phone A.
+2. Make 3 local bookshelf changes on Phone A (enqueue to SyncEngine).
+3. Verify: Items stay in queue; no network calls; `this.online = false` log.
+4. Reconnect WiFi.
+5. Expected within 1s: `netAvailable` fires → `flushAll()` → server push for all 3 items.
+6. Verify: Server returns `accepted: [...]` for all 3 items; queue empties; SoulEngine broadcasts.
+
+---
+
+**Scenario 5 — Force-Quit Recovery**
+
+1. Phone A is reading. Force-quit the app (swipe away from recents).
+2. Relaunch Phone A.
+3. Expected: App opens to same book/chapter/page (from RDB bootstrap).
+4. Within 2s: SoulEngine re-inits and merges with Pad B's current state.
+5. Verify: `ReadingProgressRepository.findByBook()` returns saved progress; `SoulEngine.init()` and `attach()` called in EntryAbility; observer fires within 2s.
+
+---
+
+**Scenario 6 — Permission Revoke Fallback**
+
+1. While app is running on Phone A, revoke `DISTRIBUTED_DATASYNC` permission in Settings.
+2. Try to navigate to a new chapter.
+3. Expected: App continues to work normally (LocalFallback activated). No crash.
+4. Verify: `SoulEngine.isFallbackMode === true`; `ReadingSoul.setPosition()` writes to `LocalFallback`; subscriber still fires; UI updates correctly.
+
+---
+
+## 10. Related Documentation
 
 - **ARCHITECTURE.md**: Layer contract and cross-feature rules.
 - **layer-contract.md**: L1 Foundation rules for DistributedSoul (when available).

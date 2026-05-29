@@ -6,6 +6,7 @@ import { StoreKeys } from '../store/StoreKeys';
 import { ReadingStore } from '../store/ReadingStore';
 import { UserStore } from '../store/UserStore';
 import { PagePath } from '../core/router/RouteConstants';
+import { ContinuationManager } from '../core/atomic/ContinuationManager';
 
 const TAG = 'ContinueReadingAbility';
 
@@ -92,10 +93,30 @@ export default class ContinueReadingAbility extends UIAbility {
     return key;
   }
 
-  onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
-    this.params = parseParams(want);
-    this.applyToStore();
-    console.info(`${TAG} onCreate bookId=${this.params.bookId} chapter=${this.params.chapterIndex} page=${this.params.pageIndex}`);
+  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    const isContinuation = launchParam.launchReason === AbilityConstant.LaunchReason.CONTINUATION;
+    if (isContinuation) {
+      // 跨端续读：从 ContinuationManager（ReadingSoul）恢复位置
+      ContinuationManager.restoreFromWant(want).then((session) => {
+        if (session) {
+          this.params.bookId = session.bookId;
+          this.params.chapterIndex = session.pageIdx; // map pageIdx → chapterIndex for compatibility
+          this.params.pageIndex = session.pageIdx;
+          this.params.percentComplete = session.percentComplete;
+          this.applyToStore();
+          console.info(`${TAG} onCreate (continuation) restored bookId=${session.bookId}`);
+        }
+      }).catch((e: Error) => {
+        console.warn(`${TAG} restoreFromWant failed: ${e.message}`);
+        // fallback to want params
+        this.params = parseParams(want);
+        this.applyToStore();
+      });
+    } else {
+      this.params = parseParams(want);
+      this.applyToStore();
+    }
+    console.info(`${TAG} onCreate bookId=${this.params.bookId} chapter=${this.params.chapterIndex} page=${this.params.pageIndex} isContinuation=${isContinuation}`);
   }
 
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
