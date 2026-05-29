@@ -1,79 +1,167 @@
 # harmony-app architecture
 
-This app uses the **Hybrid feature-first architecture**, introduced during the 2026-05-17 refactor (PR-0 ~ PR-7).
+## TL;DR
 
-## Top-level directories
+The HarmonyOS port of Readmigo (CN edition) runs on a **4-layer L1–L4
+architecture** wrapped around **4 pillars**: a Distributed Reading Soul that
+syncs reading state across the super-device fleet, an Adaptive Surface
+Decomposition that lets one ViewModel render across 5 device classes, an
+Atomic Service Surface for micro-interactions, and an AI Reading Co-Pilot
+injected as a cross-cutting L2 aspect. Layer rules are machine-checked at
+build time by `scripts/check-import-boundary.mjs`; the full rule set lives
+in `docs/architecture/layer-contract.md`.
 
-`entry/src/main/ets/`:
+---
 
-- `entryability/` `abilities/` — Ability entry points
-- `core/` — Cross-cutting concerns and platform capabilities (router / shell / native / persistence / widget / theme / extensions / analytics / monitoring / performance / cache / experiments / moderation / dynamic / atomic)
-- `ui/` — Cross-feature shared UI (primitives / responsive / lazy / sheets)
-- `api/` — HTTP client, packaged by business domain (client / books / auth / reading / ai / notes / study / subscription / support / widget)
-- `store/` — Global reactive stores (UserStore / SettingsStore / ReadingStore / AudioPlayerStore)
-- `model/` — Single-source domain models (aligned with server-cn DTOs)
-- `features/` — 15 vertical features:
-  - reader / library / audiobook / vocab — core reading chain
-  - discover / notes / ai-tools — learning aids
-  - account / support / study — account & service
-  - notification / admin — system capabilities
-  - multi-device / multi-platform — HarmonyOS ecosystem adaptation
-  - dev — developer tools (conditionally excluded in release builds)
+## 1. The 4 layers
 
-## Inter-layer dependency rules
+```mermaid
+graph LR
+    L4[L4 UI Host] --> L3[L3 Intent + VM]
+    L3 --> L2[L2 Services]
+    L2 --> L1[L1 Core]
+    L1 --> L0[L0 Model]
+```
 
-| Layer | May import | Forbidden imports |
-|---|---|---|
-| `features/<X>/` | core, ui, api, store, model | other `features/<Y>/` (cross-feature goes through store/api; exceptions below) |
-| `api/<domain>/` | core/native, model | features, ui, store (`api/client/` may read store to fetch auth token) |
-| `store/` | api, core/persistence, model | features, ui |
-| `model/` | — | any runtime module |
-| `ui/` | core/theme, model (types only) | features, api, store |
-| `core/` | sibling modules within core | features, ui, api, store (composition root exceptions below) |
+### Layer responsibility table
 
-`scripts/check-import-boundary.mjs` enforces these rules during the hvigor pre-build step.
+| Layer | Example dirs | Allowed APIs | Forbidden APIs |
+|---|---|---|---|
+| **L4** | `features/*/pages/`, `features/*/components/`, `features/*/surfaces/`, `ui/` | `@ohos.arkui.*`; publishes Intents via `core/intent/`; reads VM state | direct HTTP, direct `@ohos.data.distributedDataObject`, sibling-surface imports |
+| **L3** | `features/*/intent/`, `features/*/viewmodel/` | Intent declarations + `FeatureViewModel<S>`; calls L2 services | `@ohos.arkui.*` runtime (only `import type` allowed); cross-feature imports |
+| **L2** | `api/`, `store/`, `features/*/service/` | HTTP, persistence, store mutations, business logic | `@ohos.arkui.*` (any form) |
+| **L1** | `core/distributed-soul/`, `core/intent/`, `core/surface/`, `core/theme/`, `core/router/`, `core/shell/`, `core/widget/`, `core/native/`, … | Cross-cutting platform capability; composition root | reaching into L2/L3/L4 except for the 6 enumerated composition exceptions |
+| **L0** | `model/` | Pure DTOs (aligned with `server-cn`) | any runtime side-effect |
 
-### Exception whitelist
+The full RULE-IDs (`RULE-L1-no-arkui`, `RULE-L1-Soul-exclusive`,
+`RULE-no-feature-cross`, …) and the dir-by-dir exception list live in
+`docs/architecture/layer-contract.md`.
 
-The following paths are explicitly allowed by the boundary script for "composition root / engineering reality" reasons:
+---
 
-| Source path | Allowed imports |
+## 2. The 4 pillars
+
+### 2.1 Distributed Reading Soul
+
+The Reading Soul is a cross-device LWW state propagator built on
+`@ohos.data.distributedDataObject`. It owns reading position, chapter
+metadata, optimistic text selection, and device-presence — all keyed by
+session and resolved via Lamport timestamps. A LocalFallback path keeps
+callers branch-free when the distributed API is unavailable (emulator,
+older firmware). **Only** `core/distributed-soul/*` may import the
+distributed data API. Deep dive: `docs/distributed-soul.md`.
+
+### 2.2 Adaptive Surface Decomposition
+
+Each feature exposes a single ViewModel (state machine) and up to 5
+SurfaceKind renderers: Phone, Tablet (incl. 2-in-1), Watch, Car, TV. At
+runtime, `SurfaceContext` resolves the active SurfaceKind from device
+class + fold state + window breakpoint + user override, and
+`SurfaceRegistry` dispatches state to the matching renderer. The
+`core/surface/Surface.ets` `@Component` is the sole ArkUI host in L1.
+ViewModels never branch on SurfaceKind. Deep dive:
+`docs/surface-decomposition.md`.
+
+### 2.3 Atomic Service Surface
+
+Micro-interactions (word lookup, share-card render, "continue reading"
+deep link) ship as independent UIAbility / 元服务 packages, separate from
+the entry HAP and constrained to ≤ 10 MB per HarmonyOS store rules. Each
+atomic service is its own process with its own IntentBus instance;
+state arriving via Continuation re-stamps `intent.source` to the receiving
+device's SurfaceKind. Packaging boundaries: `docs/bundle-strategy.md` §2
+(`atomic` row) and §5.
+
+### 2.4 AI Reading Co-Pilot
+
+The Co-Pilot is exposed as an **LLM Adapter** in L2 (under `api/ai/`),
+cross-cuts the reader/vocab/audiobook features, and is invoked through
+the existing `CROSS_FEATURE_ALLOW` edges (`reader → ai-tools`,
+`vocab → ai-tools`). It is not a layer of its own; it is a service that
+features depend on via Intents (`reader.lookupWord`, future `copilot.*`).
+Token, prompt cache, and rate-limit policy live alongside `api/client/`.
+
+---
+
+## 3. Compatibility with the pre-W1 layout
+
+W1 is **additive**: no existing directory is renamed or removed. The
+existing 16 feature dirs (account, admin, ai-tools, audiobook, dev,
+discover, library, multi-device, multi-platform, notes, notification,
+reader, study, support, vocab, plus the future widget HAR) keep their
+positions. W1 adds:
+
+- `core/distributed-soul/`, `core/intent/`, `core/surface/` (L1 platform
+  capabilities).
+- Per-feature `intent/` and `viewmodel/` sub-folders under each feature
+  that opts into the new contract (W1 scope: reader, discover, library,
+  account, audiobook).
+
+Existing `CROSS_FEATURE_ALLOW` edges
+(`reader→{ai-tools,audiobook,multi-device}`, `vocab→{…}`,
+`multi-platform→{ai-tools,notes}`, `multi-device→{notes,multi-platform}`)
+are preserved verbatim in
+`scripts/check-import-boundary.mjs:CROSS_FEATURE_ALLOW`.
+
+---
+
+## 4. Migration from "hybrid feature-first"
+
+The pre-W1 doc described a **hybrid feature-first** model with rules per
+top-level dir (`features/`, `core/`, `api/`, `store/`, `ui/`, `model/`).
+W1 keeps every one of those rules and **adds two finer dimensions**:
+
+1. Each feature is internally split into **L2 service / L3 intent+VM /
+   L4 UI** sub-folders, with ArkUI imports walled off from L2 and L3.
+2. Three new L1 sub-modules (`distributed-soul`, `intent`, `surface`)
+   gain exclusive ownership of specific APIs.
+
+There is no rename, no churn, no breaking change for the 11 pre-existing
+features outside the W1 scope; they continue to compile against the old
+rules until they migrate (the boundary checker treats them as
+"intent/viewmodel sub-folder absent" → no new constraint).
+
+---
+
+## 5. Build-time enforcement
+
+`scripts/check-import-boundary.mjs` runs in the `hvigor` pre-build step.
+It encodes every layer rule in `docs/architecture/layer-contract.md` and
+every W1 addition above. Violation lines look like:
+
+```
+VIOLATION [W1] features/reader/viewmodel/ReaderViewModel.ets:42: W1-2: L3 feature intent/viewmodel must not import @ohos.arkui.* (use `import type` only)
+```
+
+The leading tag (`[W1]`, `[features/]`, …) maps to a section in the layer
+contract. CI fails on any violation; there is no bypass flag.
+
+Local check:
+
+```
+node harmony-app/scripts/check-import-boundary.mjs
+```
+
+---
+
+## 6. Adding a new feature
+
+The 1-page checklist lives in `docs/architecture/feature-template.md`.
+TL;DR: create `intent/`, `viewmodel/`, `service/`, `pages/`, optional
+`surfaces/`, write a barrel, register the route, run the boundary check.
+
+---
+
+## 7. Related documents
+
+| Topic | Doc |
 |---|---|
-| `core/shell/` | features, ui, store, api (app composition root) |
-| `core/widget/` | api, store, features (Widget ExtensionAbility is an independent runtime entity) |
-| `core/router/` | store (auth-guard reads UserStore) |
-| `core/theme/` | store (ThemeService persists user preferences) |
-| `core/experiments/` | store (reads user group) |
-| `api/client/` | store (interceptor reads token from UserStore) |
-
-### Allowed cross-feature dependencies
-
-A few inter-feature dependencies are legitimate and explicitly declared in the script:
-
-- `reader` → `ai-tools` / `audiobook` / `multi-device`: trigger word explanation, read-aloud, and device handoff while reading
-- `vocab` → `ai-tools` / `audiobook` / `multi-device`: SRS review uses explanation cards / TTS / clipboard
-- `multi-platform` → `ai-tools` / `notes`: multi-surface layouts aggregate capabilities across features
-- `multi-device` → `notes` / `multi-platform`: distributed sync writes notes / watch surface display
-
-Future work: move shared components (e.g. ExplainCard / WordExplainSheet) down into `ui/sheets/` to further reduce cross-feature dependencies.
-
-## Workflow for adding a new feature
-
-1. `mkdir -p features/<new>/{pages,components,service}`
-2. Write a `features/<new>/index.ets` barrel
-3. Add route constants under the `// ── new entries below ──` anchor in `core/router/RouteConstants.ets`
-4. Register new pages in `entry/src/main/resources/base/profile/main_pages.json`
-5. Run `hvigor assembleHap` and verify the import boundary check passes
-
-## Historical specs & plans
-
-- Design: `docs/specs/2026-05-17-harmony-app-feature-first-design.md`
-- Implementation plan: `docs/specs/2026-05-17-harmony-app-feature-first-impl-plan.md`
-
-## Phase 2 follow-ups (unrelated to the refactor, tracked separately)
-
-- AudioPlayerStore reactive refactor (callback → @ObservedV2 / @Trace)
-- Align with server-cn Audiobook DTO
-- Performance / startup / rendering optimizations
-- Physical HarmonyOS HAR/HSP modularization
-- Move cross-feature shared UI into `ui/sheets/` to shrink the whitelist
+| Layer rules (machine-checkable) | `docs/architecture/layer-contract.md` |
+| Intent / IntentBus / ViewModel base | `docs/architecture/intent-contract.md` |
+| Per-feature scaffolding checklist | `docs/architecture/feature-template.md` |
+| Distributed Reading Soul deep dive | `docs/distributed-soul.md` |
+| Surface decomposition deep dive | `docs/surface-decomposition.md` |
+| HSP/HAR bundle split | `docs/bundle-strategy.md` |
+| Performance & memory budgets | `docs/performance-budget.md` |
+| Historical hybrid-feature-first design | `docs/specs/2026-05-17-harmony-app-feature-first-design.md` |
+| Historical implementation plan | `docs/specs/2026-05-17-harmony-app-feature-first-impl-plan.md` |

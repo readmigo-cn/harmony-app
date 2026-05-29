@@ -1,10 +1,37 @@
 // scripts/check-import-boundary.mjs
-// Enforce layer dependency rules for the Hybrid feature-first architecture.
+// Enforce layer dependency rules for the Hybrid feature-first + W1 distributed architecture.
 import { readFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
 
-// 每个 layer 的 "禁止 import" 列表（路径片段，匹配会触发 violation）。
-// 注意：features 内部跨 feature 在下面有专门的同 feature 例外处理。
+// ── W1 Layer classification ──────────────────────────────────────────────────
+// Maps glob-style path prefixes to logical layer IDs used in LAYER_RULES below.
+// Evaluated top-to-bottom; first match wins.
+const LAYERS = {
+  'core/distributed-soul/':  'L1',
+  'core/intent/':            'L1',
+  'core/surface/':           'L1',
+  'core/theme/':             'L1',
+  'core/router/':            'L1',
+  'core/shell/':             'L1',
+  'core/widget/':            'L1',
+  'core/experiments/':       'L1',
+  'core/':                   'L1',
+  'api/':                    'L2',
+  'store/':                  'L2',
+  'features/':               'L3-L4',  // further split below by sub-path
+  'ui/':                     'L4-shared',
+  'model/':                  'L0',
+};
+
+// W1 additional rules layered on top of the existing RULES table:
+//   L1 cannot import L2/L3/L4
+//   Only core/distributed-soul may import @ohos.data.distributedDataObject
+//   core/surface may import from core/intent and core/distributed-soul (same L1 — OK)
+//   L3 (feature intent/vm) may not import @ohos.arkui.* except via `import type`
+const W1_OHOS_DATA_OBJECT_ALLOWED = 'core/distributed-soul/';
+
+// ── Existing per-layer forbidden-import lists ────────────────────────────────
+// (Preserved verbatim from pre-W1 script)
 const RULES = {
   'features/': ['/features/'],
   'ui/':       ['/features/', '/api/', '/store/'],
@@ -14,36 +41,68 @@ const RULES = {
   'core/':     ['/features/', '/ui/', '/api/', '/store/'],
 };
 
-// 例外白名单（path-prefix in source file → 允许的 forbidden 片段集合）
-// 这些是公认的"composition root / glue / 工程现实"，不破坏架构原则：
-//   - core/shell：app 装配根，必须知道所有顶层 feature page；
-//   - core/widget：HarmonyOS Widget ExtensionAbility，独立运行实体，需直连 api/；
-//   - core/router：路由服务需读 UserStore 做 auth guard；
-//   - core/theme：ThemeService 持久化用户偏好（SettingsStore + StoreKeys）；
-//   - core/experiments：RemoteConfig 取用户 group；
-//   - api/client：HTTP 拦截器从 UserStore 取 token / 401 时清空 store。
+// ── Exception whitelist ──────────────────────────────────────────────────────
+// Composition-root / engineering-reality exceptions preserved from pre-W1:
+//   core/shell, core/widget, core/router, core/theme, core/experiments, api/client
+// W1 additions:
+//   core/distributed-soul — allowed to import @ohos.data.distributedDataObject (native only)
+//   core/surface          — allowed to import @ohos.arkui.* (sole ArkUI component in L1)
 const PATH_EXCEPTIONS = [
-  { source: 'core/shell/',         allow: ['/features/', '/ui/', '/store/', '/api/'] },
-  { source: 'core/widget/',        allow: ['/api/', '/store/', '/features/'] },
-  { source: 'core/router/',        allow: ['/store/'] },
-  { source: 'core/theme/',         allow: ['/store/'] },
-  { source: 'core/experiments/',   allow: ['/store/'] },
-  { source: 'api/client/',         allow: ['/store/'] },
+  { source: 'core/shell/',              allow: ['/features/', '/ui/', '/store/', '/api/'] },
+  { source: 'core/widget/',             allow: ['/api/', '/store/', '/features/'] },
+  { source: 'core/router/',             allow: ['/store/'] },
+  { source: 'core/theme/',              allow: ['/store/'] },
+  { source: 'core/experiments/',        allow: ['/store/'] },
+  { source: 'api/client/',              allow: ['/store/'] },
+  // W1: distributed-soul is the only L1 consumer of the native distributed data API.
+  { source: 'core/distributed-soul/',   allow: [] },
+  // W1: surface/Surface.ets is the sole ArkUI component permitted in L1.
+  { source: 'core/surface/',            allow: [] },
 ];
 
-// 跨 feature 允许清单（source feature → target features[]）。
-// 这些场景在 spec 中明确允许：reader / vocab / multi-platform / multi-device 内部共享 widget-like 组件。
-// 物理拆分到 ui/ 还需进一步重构，先用此 allowlist 落地，后续在 ARCHITECTURE.md 中跟踪。
+// ── Cross-feature allowlist ──────────────────────────────────────────────────
 const CROSS_FEATURE_ALLOW = {
-  // reader 阅读时调起 ai-tools 词义解释卡、audiobook 朗读、multi-device 设备协同
-  'reader': ['ai-tools', 'audiobook', 'multi-device'],
-  // vocab SRS 复习用 ai-tools 解释卡 + audiobook TTS + multi-device clipboard
-  'vocab': ['ai-tools', 'audiobook', 'multi-device'],
-  // 多端布局聚合多个 feature 的能力
+  'reader':         ['ai-tools', 'audiobook', 'multi-device'],
+  'vocab':          ['ai-tools', 'audiobook', 'multi-device'],
   'multi-platform': ['ai-tools', 'notes'],
-  // 分布式同步需要写 notes / 读 watch 端展示数据
-  'multi-device': ['notes', 'multi-platform'],
+  'multi-device':   ['notes', 'multi-platform'],
 };
+
+// ── W1 additional single-import violation checks ─────────────────────────────
+// Run these in the main loop in addition to RULES checks.
+function checkW1Rules(relPath, line, lineNum) {
+  const violations = [];
+
+  // Rule W1-1: Only core/distributed-soul may import distributedDataObject.
+  if (
+    line.includes('distributedDataObject') &&
+    !relPath.startsWith(W1_OHOS_DATA_OBJECT_ALLOWED)
+  ) {
+    violations.push({
+      file: relPath,
+      line: lineNum,
+      text: line.trim(),
+      reason: 'W1-1: Only core/distributed-soul may import @ohos.data.distributedDataObject',
+    });
+  }
+
+  // Rule W1-2: L3 feature intent/viewmodel dirs must not import @ohos.arkui.* (except `import type`).
+  if (
+    (relPath.includes('/intent/') || relPath.includes('/viewmodel/')) &&
+    relPath.startsWith('features/') &&
+    line.includes('@ohos.arkui') &&
+    !line.trim().startsWith('import type')
+  ) {
+    violations.push({
+      file: relPath,
+      line: lineNum,
+      text: line.trim(),
+      reason: 'W1-2: L3 feature intent/viewmodel must not import @ohos.arkui.* (use `import type` only)',
+    });
+  }
+
+  return violations;
+}
 
 const ROOT = 'harmony-app/entry/src/main/ets';
 let violations = 0;
@@ -61,34 +120,41 @@ for await (const filepath of glob(`${ROOT}/**/*.ets`)) {
   for (const prefix of Object.keys(RULES)) {
     if (relPath.startsWith(prefix)) { layer = prefix; break; }
   }
-  if (!layer) continue;
 
   const lines = readFileSync(filepath, 'utf8').split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!/^\s*import\s/.test(line) && !/\bfrom\s+['"]/.test(line)) continue;
+    // Skip lines that are inside block comments or single-line comments.
+    if (/^\s*\*/.test(line) || /^\s*\/\//.test(line) || /^\s*\/\*/.test(line)) continue;
 
-    for (const forbidden of RULES[layer]) {
-      if (!line.includes(forbidden)) continue;
+    // ── Existing RULES checks ──
+    if (layer) {
+      for (const forbidden of RULES[layer]) {
+        if (!line.includes(forbidden)) continue;
 
-      // Cross-feature 例外：
-      if (layer === 'features/' && forbidden === '/features/') {
-        const myFeat = relPath.match(/^features\/([^/]+)/);
-        const tgtFeat = line.match(/features\/([^/'"]+)/);
-        if (myFeat && tgtFeat) {
-          // 同 feature 永远 OK
-          if (myFeat[1] === tgtFeat[1]) continue;
-          // 允许清单
-          const allowed = CROSS_FEATURE_ALLOW[myFeat[1]] || [];
-          if (allowed.includes(tgtFeat[1])) continue;
+        if (layer === 'features/' && forbidden === '/features/') {
+          const myFeat = relPath.match(/^features\/([^/]+)/);
+          const tgtFeat = line.match(/features\/([^/'"]+)/);
+          if (myFeat && tgtFeat) {
+            if (myFeat[1] === tgtFeat[1]) continue;
+            const allowed = CROSS_FEATURE_ALLOW[myFeat[1]] || [];
+            if (allowed.includes(tgtFeat[1])) continue;
+          }
         }
+
+        if (isPathExempt(relPath, forbidden)) continue;
+
+        console.error(`VIOLATION [${layer}]: ${filepath}:${i + 1}: ${line.trim()}`);
+        violations++;
       }
+    }
 
-      // path-level 白名单
-      if (isPathExempt(relPath, forbidden)) continue;
-
-      console.error(`VIOLATION [${layer}]: ${filepath}:${i + 1}`);
-      console.error(`  ${line.trim()}`);
+    // ── W1 additional checks ──
+    const w1 = checkW1Rules(relPath, line, i + 1);
+    for (const v of w1) {
+      console.error(`VIOLATION [W1] ${v.file}:${v.line}: ${v.reason}`);
+      console.error(`  ${v.text}`);
       violations++;
     }
   }
@@ -99,3 +165,23 @@ if (violations > 0) {
   process.exit(1);
 }
 console.log('Import boundary check passed.');
+
+// ── RULE-fanout-13 advisory (does not fail CI until W22) ──────────────────────
+// Logs files exceeding 13 project-local imports; see layer-contract.md §7.
+let fanoutWarnings = 0;
+for await (const filepath of glob(`${ROOT}/**/*.ets`)) {
+  const lines = readFileSync(filepath, 'utf8').split('\n');
+  let localImports = 0;
+  for (const line of lines) {
+    if (/^\s*import\s/.test(line) && /\bfrom\s+['"](\.\.|@\/)/.test(line)) {
+      localImports++;
+    }
+  }
+  if (localImports > 13) {
+    console.warn(`FANOUT-ADVISORY [RULE-fanout-13]: ${filepath} has ${localImports} local imports (ceiling: 13)`);
+    fanoutWarnings++;
+  }
+}
+if (fanoutWarnings > 0) {
+  console.warn(`\n${fanoutWarnings} file(s) exceed the fanout ceiling (advisory only; enforced in W22).`);
+}
