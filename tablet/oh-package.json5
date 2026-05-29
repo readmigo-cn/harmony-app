@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "@readmigo/tablet",
+  "version": "0.1.0",
+  "description": "Readmigo tablet HSP — SplitLayout, DragDrop, LG breakpoint adaptation",
+  "apiType": "stageMode",
+  "kind": "hsp",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

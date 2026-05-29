@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "@readmigo/widget",
+  "version": "0.1.0",
+  "description": "Readmigo widget HAR+ExtensionAbility — UniversalCardAdapter, FormDataStore, 4 ExtensionAbilities",
+  "apiType": "stageMode",
+  "kind": "hsp",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

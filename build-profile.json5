@@ -64,6 +64,119 @@
           ]
         }
       ]
+    },
+    // W21: reader HSP — typesetter, paginator, selection layer, AI tools (≤2500KB)
+    {
+      "name": "reader",
+      "srcPath": "./reader",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    },
+    // W21: vocab HSP — VocabStore, SRS algorithm, FlashcardPage (≤1000KB)
+    {
+      "name": "vocab",
+      "srcPath": "./vocab",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    },
+    // W21: paywall HSP — PaywallView, subscription pages (≤700KB); payment services deferred to W7
+    {
+      "name": "paywall",
+      "srcPath": "./paywall",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    },
+    // W22: tablet HSP — SplitLayout, DragDrop, LG adaptation (≤800KB)
+    {
+      "name": "tablet",
+      "srcPath": "./tablet",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    },
+    // W22: tv HSP — RemoteController, TVOverview, focus engine (≤900KB)
+    {
+      "name": "tv",
+      "srcPath": "./tv",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    },
+    // W22: car HSP — VoiceCommand, DriverModeView, headset hook (≤600KB)
+    {
+      "name": "car",
+      "srcPath": "./car",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    },
+    // W22: watch HSP — WatchVocabCard, WatchReader, complication (≤500KB)
+    {
+      "name": "watch",
+      "srcPath": "./watch",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
+    },
+    // W22: widget HSP — UniversalCardAdapter, FormDataStore, 3 phone/tablet ExtensionAbilities (≤400KB)
+    // Note: WatchVocabCardExtensionAbility lives in the watch HSP (wearable deviceType only)
+    {
+      "name": "widget",
+      "srcPath": "./widget",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default",
+            "release"
+          ]
+        }
+      ]
     }
   ]
 }

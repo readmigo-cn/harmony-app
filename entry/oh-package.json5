@@ -13,6 +13,17 @@
     // 真实 .so 编出来后由 hvigor 自动写入 entry/libs/arm64-v8a/libreadmigo_typesetting.so，
     // ets 端用 `import typesetting from 'libreadmigo_typesetting.so'` 加载。
     // 当前 NATIVE_AVAILABLE=false 时，typesetting.ets 走 mock，无需真依赖。
+
+    // W21/W22 HSP dependencies — entry HAP declares all 8 HSPs so hvigor packs them
+    // into the final .app bundle. Runtime loading is lazy via ModuleLoader.
+    "@readmigo/reader": "../reader",
+    "@readmigo/vocab": "../vocab",
+    "@readmigo/paywall": "../paywall",
+    "@readmigo/tablet": "../tablet",
+    "@readmigo/tv": "../tv",
+    "@readmigo/car": "../car",
+    "@readmigo/watch": "../watch",
+    "@readmigo/widget": "../widget"
   },
   "devDependencies": {
     // Hypium is the HarmonyOS unit-test framework. Used by ohosTest tests under

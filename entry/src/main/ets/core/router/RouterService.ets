@@ -6,9 +6,27 @@ import {
   DeepLinkTarget,
   LoginRouteParams,
 } from './RouteConstants';
+import { ModuleLoader, ModuleName } from '../dynamic/ModuleLoader';
 
 const MAX_HISTORY = 50;
 const DEEP_LINK_SCHEME = 'readmigo://';
+
+/**
+ * Maps route names to the HSP that must be loaded before navigation.
+ * Routes not in this map live in the entry HAP and need no pre-load.
+ */
+const ROUTE_TO_HSP: ReadonlyMap<string, ModuleName> = new Map<string, ModuleName>([
+  [RoutePath.READER, 'reader'],
+  [RoutePath.READING_COMPREHENSION, 'reader'],
+  [RoutePath.WEAKNESS_ANALYSIS, 'reader'],
+  [RoutePath.VOCAB, 'vocab'],
+  [RoutePath.FLASHCARD_SESSION, 'vocab'],
+  [RoutePath.VOCAB_STATS, 'vocab'],
+  [RoutePath.WORD_ASSOCIATION, 'vocab'],
+  [RoutePath.WORD_FAMILY, 'vocab'],
+  [RoutePath.SUBSCRIPTIONS, 'paywall'],
+  [RoutePath.REFUND_FLOW, 'paywall'],
+]);
 
 interface HistoryEntry {
   route: string;
@@ -50,6 +68,8 @@ export class RouterService {
 
   /**
    * 命名路由 push。受保护路由 + 未登录会被劫持到 Login。
+   * 同步版本：HSP 已加载时直接跳；未加载时可能短暂白屏。
+   * 优先使用 navigate()（异步，确保 HSP 就绪后才入栈）。
    */
   static push(name: string, param?: object): void {
     if (RouterService.shouldRedirectToLogin(name)) {
@@ -60,6 +80,30 @@ export class RouterService {
     }
     RouterService.get().pushPathByName(name, param ?? null);
     RouterService.recordHistory(name);
+  }
+
+  /**
+   * 异步路由导航：先等待目标 HSP 加载完成，再执行 push。
+   * 若目标路由不需要 HSP（在 entry HAP 内），立即 push。
+   * 若 HSP 加载失败，回调 onError（可选），不做路由跳转。
+   */
+  static async navigate(
+    name: string,
+    param?: object,
+    onError?: (err: Error) => void,
+  ): Promise<void> {
+    const hspName = ROUTE_TO_HSP.get(name);
+    if (hspName) {
+      try {
+        await ModuleLoader.getInstance().load(hspName);
+      } catch (err) {
+        if (onError) {
+          onError(err instanceof Error ? err : new Error(String(err)));
+        }
+        return;
+      }
+    }
+    RouterService.push(name, param);
   }
 
   static replace(name: string, param?: object): void {

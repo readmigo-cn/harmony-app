@@ -30,9 +30,38 @@ Page semantics are aligned with `readmigo-repos/mobile`, covering:
 - Multi-surface: `AudiobookTab` / `AudiobookPlayer` / Watch / Tablet sub-layouts
 - Developer: `XComponentDemo` / `ComponentGallery`
 
-## Still required for Huawei backend onboarding
+## Release
 
-- `entry/agconnect-services.json`
-- Signing certificate
-- Actual `bundleName`
-- Actual SDK version numbers
+For releasing v0.1.0 to AppGallery Connect, follow the **[Release Setup Guide](./docs/release-setup.md)**. The 6-step checklist covers AGC registration, signing certificates, config injection, and build verification.
+
+**Pre-release verification:**
+```bash
+bash scripts/check-release-readiness.sh
+```
+
+**Build signed HAP:**
+```bash
+./hvigorw assembleHap --mode product=release
+```
+
+See [`docs/changelog/CHANGELOG.md`](./docs/changelog/CHANGELOG.md) for W1–W6 feature summary.
+
+## Implementation Status
+
+| Wave | Focus | Status |
+|------|-------|--------|
+| W1 | 4-layer architecture, IntentBus, Surface decomposition | ✓ Complete |
+| W2 | 7 missing feature stubs (Agora, stats, badges, quotes, etc.) | ✓ Complete |
+| W3 | Reader full functionality (typesetter, selection, audio sync) | ✓ Complete |
+| W4 | AI co-pilot (translation, summarization, LookupWord, TTS) | ✓ Complete |
+| W5 | Distributed Soul, 5-surface decomposition, continuation | ✓ Complete |
+| W6 | CN compliance (HMS Push, SensorsAnalytics, AGC), payments, release docs | ✓ Complete |
+| W7+ | HSP dynamic loading, performance tuning, remaining integrations | Pending |
+
+## Still required for post-W6 phases
+
+- **W21–W22:** Migrate reader/vocab/paywall/tablet/tv/car/watch/widget to runtime HSP (dynamic loading)
+- **Payment provider real implementation:** Replace MOCK_OK stubs in Alipay/WeChat/IAP
+- **atomic-service independent signing:** Package word-lookup + share-card as separate ≤ 10 MB HAPs
+- **Performance optimization:** Meet cold-start budget (≤ 5 GB, ≤ 430 ms to first frame)
+- **E2E integration tests:** Reader + AI + payments end-to-end flows

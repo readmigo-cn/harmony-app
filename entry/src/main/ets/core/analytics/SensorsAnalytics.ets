@@ -23,8 +23,23 @@
 
 import { AnalyticsProvider, AnalyticsProperties, AnalyticsProperty } from './AnalyticsProvider';
 import { PreferencesManager } from '../persistence/PreferencesManager';
-// Phase 4 切真实上报后启用：
-// import http from '@ohos.net.http';
+
+// Try real Sensors Analytics HarmonyOS SDK
+let SensorsDataAPI: {
+  init: (serverUrl: string, config: object) => void;
+  track: (eventName: string, properties: object) => void;
+  login: (userId: string) => void;
+  logout: () => void;
+  profileSet: (properties: object) => void;
+  flush: () => void;
+} | null = null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  SensorsDataAPI = require('@sensorsdata/analytics-harmony') as typeof SensorsDataAPI;
+} catch (_) {
+  console.info('SensorsAnalytics: SDK not available, using HTTP-mock provider');
+}
 
 const TAG = 'SensorsAnalytics';
 const FAILED_QUEUE_KEY = 'sa_failed_queue';
@@ -69,6 +84,14 @@ interface SaEventEnvelope {
   properties: AnalyticsProperties;
 }
 
+export type SaProvider = 'sdk' | 'http-mock';
+
+export interface SaConfigOptions {
+  provider?: SaProvider;
+  serverUrl: string;
+  projectName: string;
+}
+
 export class SensorsAnalytics implements AnalyticsProvider {
   readonly name: string = 'sensors';
 
@@ -80,12 +103,26 @@ export class SensorsAnalytics implements AnalyticsProvider {
 
   private serverUrl: string = '';
   private projectName: string = 'default';
+  private activeProvider: SaProvider = SensorsDataAPI ? 'sdk' : 'http-mock';
   private distinctId: string = '';
   private anonymousId: string = '';
   private superProperties: AnalyticsProperties = {};
   private queue: SaEventEnvelope[] = [];
   private flushTimer: number = -1;
   private initialized: boolean = false;
+
+  /**
+   * Configure provider explicitly. Call before init() if you need to force
+   * a specific provider ('sdk' | 'http-mock').
+   */
+  configure(opts: SaConfigOptions): void {
+    if (opts.provider) {
+      // Allow forcing 'http-mock' even when SDK is present (e.g. testing)
+      this.activeProvider = (opts.provider === 'sdk' && SensorsDataAPI) ? 'sdk' : 'http-mock';
+    }
+    this.serverUrl = opts.serverUrl;
+    this.projectName = opts.projectName;
+  }
 
   /** 初始化：在 EntryAbility.onCreate 调用 */
   async init(serverUrl: string, projectName: string): Promise<void> {
@@ -114,9 +151,26 @@ export class SensorsAnalytics implements AnalyticsProvider {
     if (this.distinctId.length === 0) {
       this.distinctId = this.anonymousId;
     }
+
+    // Init real SDK if available and provider is 'sdk'
+    if (this.activeProvider === 'sdk' && SensorsDataAPI) {
+      try {
+        SensorsDataAPI.init(serverUrl, {
+          project: projectName,
+          flushInterval: 30000,
+          flushBulkSize: 100,
+          autoTrackEventType: 0,
+        });
+        console.info(`${TAG} real SDK init done`);
+      } catch (e) {
+        console.warn(`${TAG} SDK init failed, fallback to http-mock: ${(e as Error).message}`);
+        this.activeProvider = 'http-mock';
+      }
+    }
+
     this.startFlushTimer();
     this.initialized = true;
-    console.info(`${TAG} init done, anonymousId=${this.anonymousId}`);
+    console.info(`${TAG} init done, provider=${this.activeProvider}, anonymousId=${this.anonymousId}`);
   }
 
   /** 注入设备/应用级属性（$lib、$app_version 等），后续每个事件自动附带 */
@@ -145,6 +199,11 @@ export class SensorsAnalytics implements AnalyticsProvider {
   identify(userId: string, traits?: AnalyticsProperties): void {
     const oldId = this.distinctId;
     this.distinctId = userId;
+    if (this.activeProvider === 'sdk' && SensorsDataAPI) {
+      try {
+        SensorsDataAPI.login(userId);
+      } catch (_) {}
+    }
     if (oldId.length > 0 && oldId !== userId) {
       this.alias(userId, oldId);
     }
@@ -187,6 +246,11 @@ export class SensorsAnalytics implements AnalyticsProvider {
   reset(): void {
     this.distinctId = this.anonymousId; // 回到匿名状态
     this.superProperties = {};
+    if (this.activeProvider === 'sdk' && SensorsDataAPI) {
+      try {
+        SensorsDataAPI.logout();
+      } catch (_) {}
+    }
   }
 
   async flush(): Promise<void> {
@@ -220,22 +284,47 @@ export class SensorsAnalytics implements AnalyticsProvider {
   }
 
   /**
-   * Mock 上报：神策协议要求 base64(gzip(json))，这里 mock 仅打日志。
-   * Phase 4 替换为 HTTP POST：
-   *   POST {serverUrl}/sa?project={projectName}
-   *   Content-Type: application/x-www-form-urlencoded
-   *   body: data=base64encoded
+   * Dispatch batch via real SDK (if available) or HTTP-mock fallback.
+   * Real SDK: SensorsDataAPI.track() per event + SensorsDataAPI.flush()
+   * HTTP-mock: POST {serverUrl}/sa?project={projectName} with base64 payload
    */
   private async dispatch(batch: SaEventEnvelope[]): Promise<void> {
-    if (this.serverUrl.length === 0) {
-      console.info(`${TAG} dispatch (mock, no serverUrl): ${batch.length} events`);
+    if (this.activeProvider === 'sdk' && SensorsDataAPI) {
+      try {
+        for (const env of batch) {
+          if (env.type === 'track') {
+            SensorsDataAPI.track(env.event, env.properties);
+          } else if (env.type === 'profile_set') {
+            SensorsDataAPI.profileSet(env.properties);
+          }
+        }
+        SensorsDataAPI.flush();
+        return;
+      } catch (e) {
+        console.warn(`${TAG} SDK dispatch failed, falling through to http-mock: ${(e as Error).message}`);
+      }
+    }
+
+    if (this.serverUrl.length === 0 || this.serverUrl.indexOf('_PLACEHOLDER_') >= 0) {
+      if (batch.length > 0) {
+        console.info(`${TAG} http-mock dispatch ${batch.length} events, first=${batch[0].event}`);
+      }
       return;
     }
-    // TODO(Phase 4): 神策官方 HarmonyOS SDK 上线后切回 SensorsDataAPI.track
-    // 当前 mock：只打 batch 摘要，不真发请求避免 dev 期间打爆 server
-    if (batch.length > 0) {
-      const sample = batch[0];
-      console.info(`${TAG} mock dispatch ${batch.length} events, first=${sample.event}`);
+
+    // HTTP dispatch: POST application/x-www-form-urlencoded data=base64(json)
+    try {
+      const json = JSON.stringify(batch);
+      const encoded = btoa(unescape(encodeURIComponent(json)));
+      const body = `data=${encodeURIComponent(encoded)}&project=${encodeURIComponent(this.projectName)}`;
+      await fetch(`${this.serverUrl}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      console.info(`${TAG} http dispatch ok, ${batch.length} events`);
+    } catch (e) {
+      throw e as Error;
     }
   }
 

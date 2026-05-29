@@ -1,0 +1,29 @@
+{
+  "module": {
+    "name": "watch",
+    "type": "shared",
+    "description": "Readmigo watch HSP — WatchVocabCard, WatchReader, complication",
+    "deviceTypes": [
+      "wearable"
+    ],
+    "deliveryWithInstall": true,
+    "extensionAbilities": [
+      {
+        "name": "WatchVocabCardExtensionAbility",
+        "srcEntry": "./ets/widget/WatchVocabCardExtensionAbility.ets",
+        "label": "$string:widget_watch_vocab_label",
+        "description": "$string:widget_watch_vocab_desc",
+        "type": "form",
+        "deviceTypes": [
+          "wearable"
+        ],
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      }
+    ]
+  }
+}

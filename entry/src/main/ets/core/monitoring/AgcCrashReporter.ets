@@ -1,22 +1,36 @@
 /**
- * AgcCrashReporter —— W18-C2 华为 AGC Crash 适配。
+ * AgcCrashReporter — W6 华为 AGC Crash 适配（真实 SDK + 本地文件降级）。
  *
- * 中国市场首选崩溃监控通道（出海备份用 Sentry，详见 SentryClient.ets）。
- *
- * 现状：
- *   - HMS 文档 `@hms.agc.crash` 暂无公开 HarmonyOS NEXT API
- *   - 当前以 mock 实现：
- *       * 拦截全局未捕获异常 + Promise unhandledRejection
- *       * 写本地崩溃日志到 Preferences（key: agc_crash_log）
- *       * 暴露 logException / addCrashAttachment 与官方 API 同名同签名
- *   - Phase 4 切到 `import crash from '@hms.agc.crash'` 调用 crash.recordError(...)
+ * SDK 策略：
+ *   - 优先 import @kit.CrashKit（HarmonyOS NEXT）
+ *   - 降级尝试 @hms.agconnect-crash
+ *   - 均不可用时写本地 Preferences 文件
  *
  * 与 SentryClient 的关系：
  *   - CrashHandler 同时把异常分发给二者 → 双轨上报
- *   - AGC 在中国大陆出现率高、Sentry 在出海版本可用
  */
 
 import { PreferencesManager } from '../persistence/PreferencesManager';
+
+// Try real AGC Crash SDK
+let crashSdk: {
+  setUserId: (userId: string) => void;
+  recordError: (name: string, message: string, stack: string) => void;
+  setCustomKey: (key: string, value: string) => void;
+  enableCrashCollection: (enable: boolean) => void;
+} | null = null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  crashSdk = require('@kit.CrashKit') as typeof crashSdk;
+} catch (_e1) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    crashSdk = require('@hms.agconnect-crash') as typeof crashSdk;
+  } catch (_e2) {
+    console.warn('AgcCrashReporter: AGC Crash SDK not available, using local file fallback');
+  }
+}
 
 const TAG = 'AgcCrashReporter';
 const CRASH_LOG_KEY = 'agc_crash_log';
@@ -45,19 +59,37 @@ export class AgcCrashReporter {
     if (AgcCrashReporter.initialized) return;
     AgcCrashReporter.appId = appId;
     if (appVersion) AgcCrashReporter.appVersion = appVersion;
+    if (crashSdk) {
+      try {
+        crashSdk.enableCrashCollection(true);
+        console.info(`${TAG} real SDK init done, appId=${appId}`);
+      } catch (e) {
+        console.warn(`${TAG} SDK enableCrashCollection failed: ${(e as Error).message}`);
+      }
+    }
     AgcCrashReporter.installGlobalHandlers();
     AgcCrashReporter.initialized = true;
-    console.info(`${TAG} init done, appId=${appId}`);
+    console.info(`${TAG} init done, appId=${appId}, sdkMode=${crashSdk !== null}`);
   }
 
   /** 设置当前 userId，崩溃归因到具体用户 */
   static setUserId(userId: string): void {
     AgcCrashReporter.userId = userId;
+    if (crashSdk) {
+      try {
+        crashSdk.setUserId(userId);
+      } catch (_) {}
+    }
   }
 
   /** 添加自定义键值，崩溃发生时一并上报（如：当前页面、当前 bookId） */
   static addCrashAttachment(key: string, value: string): void {
     AgcCrashReporter.attachments.set(key, value);
+    if (crashSdk) {
+      try {
+        crashSdk.setCustomKey(key, value);
+      } catch (_) {}
+    }
   }
 
   /** 业务侧主动捕获并上报异常 */
@@ -113,19 +145,24 @@ export class AgcCrashReporter {
     console.info(`${TAG} global handlers installed (mock)`);
   }
 
-  /**
-   * Mock dispatch：append 到本地 crash log 文件 + 暂存到 PENDING_CRASH_KEY
-   * 等下次启动时被 CrashHandler 弹 toast + 重发。
-   */
   private static async dispatch(record: CrashRecord): Promise<void> {
-    // 1) 暂存等下次启动重发（崩溃后进程可能立即退出，此操作要求是 sync 写）
+    // 1) Real SDK upload (if available)
+    if (crashSdk) {
+      try {
+        crashSdk.recordError(record.name, record.message, record.stack);
+      } catch (e) {
+        console.warn(`${TAG} SDK recordError failed: ${(e as Error).message}`);
+      }
+    }
+
+    // 2) Local fallback: stage for restart re-send
     await PreferencesManager.setString(PENDING_CRASH_KEY, JSON.stringify(record));
-    // 2) append 到累计日志（保留最近 64KB，方便本地 debug）
+
+    // 3) Append to local rolling log (retain last 64KB for on-device debug)
     const prev = await PreferencesManager.getString(CRASH_LOG_KEY, '');
     const line = `[${new Date(record.timestamp).toISOString()}] ${record.name}: ${record.message}\n${record.stack}\n---\n`;
     const next = (prev + line).slice(-MAX_LOG_BYTES);
     await PreferencesManager.setString(CRASH_LOG_KEY, next);
-    // 3) TODO(Phase 4): crash.recordError(record) → 真实 AGC 上报
     console.warn(`${TAG} captured ${record.name}: ${record.message}`);
   }
 }

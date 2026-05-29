@@ -1,0 +1,54 @@
+{
+  "module": {
+    "name": "widget",
+    "type": "shared",
+    "description": "Readmigo widget HSP — UniversalCardAdapter, FormDataStore, service card ExtensionAbilities",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "extensionAbilities": [
+      {
+        "name": "DailyWordExtensionAbility",
+        "srcEntry": "./ets/widget/DailyWordExtensionAbility.ets",
+        "label": "$string:widget_daily_word_label",
+        "description": "$string:widget_daily_word_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      },
+      {
+        "name": "ReadingProgressExtensionAbility",
+        "srcEntry": "./ets/widget/ReadingProgressExtensionAbility.ets",
+        "label": "$string:widget_reading_progress_label",
+        "description": "$string:widget_reading_progress_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      },
+      {
+        "name": "AiTipExtensionAbility",
+        "srcEntry": "./ets/widget/AiTipExtensionAbility.ets",
+        "label": "$string:widget_ai_tip_label",
+        "description": "$string:widget_ai_tip_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      }
+    ]
+  }
+}

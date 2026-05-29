@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "@readmigo/vocab",
+  "version": "0.1.0",
+  "description": "Readmigo vocab HSP — VocabStore, SRS algorithm, FlashcardPage",
+  "apiType": "stageMode",
+  "kind": "hsp",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

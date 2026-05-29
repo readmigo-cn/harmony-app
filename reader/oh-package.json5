@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "@readmigo/reader",
+  "version": "0.1.0",
+  "description": "Readmigo reader HSP — typesetter, paginator, selection layer, AI tools",
+  "apiType": "stageMode",
+  "kind": "hsp",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

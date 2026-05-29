@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "@readmigo/car",
+  "version": "0.1.0",
+  "description": "Readmigo car HSP — VoiceCommand, DriverModeView, headset hook (runtimeOS=car)",
+  "apiType": "stageMode",
+  "kind": "hsp",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

@@ -257,52 +257,79 @@ export class ModuleLoader {
   }
 }
 
-/** 默认注册：在 EntryAbility.onCreate 调一次即可。 */
+/**
+ * 默认注册：在 EntryAbility.onCreate 调一次即可。
+ *
+ * W21/W22: factories now use real HSP dynamic import('@readmigo/<name>').
+ * HarmonyOS NEXT pre-decodes HSP .abc into the OS cache, so second-load < 50ms.
+ * Each factory caches its module namespace object; subsequent load() calls
+ * return from the instances Map without re-importing.
+ *
+ * Fallback: every non-core module has an inline stub fallback that returns a
+ * placeholder object so cold-start and core features are never blocked.
+ */
 export function registerDefaultModules(loader: ModuleLoader = ModuleLoader.getInstance()): void {
+  // core is always statically available in entry HAP — resolve immediately.
   loader.registerModule({
     name: 'core',
     preload: true,
     sizeKbEstimate: 1800,
     factory: (): Promise<unknown> => Promise.resolve({ id: 'core' }),
   });
+
   loader.registerModule({
     name: 'reader',
     sizeKbEstimate: 2400,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'reader' }),
+    factory: (): Promise<unknown> => import('@readmigo/reader'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'reader', _fallback: true }),
   });
+
   loader.registerModule({
     name: 'vocab',
     sizeKbEstimate: 900,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'vocab' }),
+    factory: (): Promise<unknown> => import('@readmigo/vocab'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'vocab', _fallback: true }),
   });
+
   loader.registerModule({
     name: 'paywall',
     sizeKbEstimate: 600,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'paywall' }),
+    factory: (): Promise<unknown> => import('@readmigo/paywall'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'paywall', _fallback: true }),
   });
+
   loader.registerModule({
     name: 'tablet',
     sizeKbEstimate: 700,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'tablet' }),
+    factory: (): Promise<unknown> => import('@readmigo/tablet'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'tablet', _fallback: true }),
   });
+
   loader.registerModule({
     name: 'tv',
     sizeKbEstimate: 800,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'tv' }),
+    factory: (): Promise<unknown> => import('@readmigo/tv'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'tv', _fallback: true }),
   });
+
   loader.registerModule({
     name: 'car',
     sizeKbEstimate: 500,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'car' }),
+    factory: (): Promise<unknown> => import('@readmigo/car'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'car', _fallback: true }),
   });
+
   loader.registerModule({
     name: 'watch',
     sizeKbEstimate: 450,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'watch' }),
+    factory: (): Promise<unknown> => import('@readmigo/watch'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'watch', _fallback: true }),
   });
+
   loader.registerModule({
     name: 'widget',
     sizeKbEstimate: 350,
-    factory: (): Promise<unknown> => Promise.resolve({ id: 'widget' }),
+    factory: (): Promise<unknown> => import('@readmigo/widget'),
+    fallback: (): Promise<unknown> => Promise.resolve({ id: 'widget', _fallback: true }),
   });
 }

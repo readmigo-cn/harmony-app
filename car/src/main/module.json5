@@ -1,0 +1,11 @@
+{
+  "module": {
+    "name": "car",
+    "type": "shared",
+    "description": "Readmigo car HSP — VoiceCommand, DriverModeView, headset hook",
+    "deviceTypes": [
+      "car"
+    ],
+    "deliveryWithInstall": true
+  }
+}

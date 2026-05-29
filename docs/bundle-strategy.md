@@ -130,9 +130,9 @@ graph LR
 
 | Phase | Action | Status |
 |------|------|------|
-| W20-C4 | ModuleLoader + docs + e2e scaffolding | In progress (this iteration) |
-| W21    | Migrate reader / vocab / paywall to real HSPs, switch hvigorw packaging | Pending |
-| W22    | tablet / tv / car / watch / widget HSPs + CI bundle-size budget check | Pending |
+| W20-C4 | ModuleLoader + docs + e2e scaffolding | Done |
+| W21    | Migrate reader / vocab / paywall to real HSPs, switch hvigorw packaging | Done (W6) |
+| W22    | tablet / tv / car / watch / widget HSPs + CI bundle-size budget check | Done (W6) |
 | Post-V1 | Atomic-service ability HAP signed independently, shipped via "install on demand" | Pending |
 
 ---

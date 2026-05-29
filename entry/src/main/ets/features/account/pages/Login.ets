@@ -11,6 +11,9 @@ import router from '@ohos.router';
 // W18-C1：Login 入口曝光埋点
 import { Analytics } from '../../../core/analytics/AnalyticsProvider';
 import { SaEvents } from '../../../core/analytics/SensorsAnalytics';
+// W6 CN-compliance: real auth providers
+import { HuaweiAccountProvider } from '../service/HuaweiAccountProvider';
+import { WeChatAuthProvider } from '../service/WeChatAuthProvider';
 
 /**
  * Login —— 登录页（W4-C1）。
@@ -207,10 +210,8 @@ export struct Login {
     if (this.submitting) return;
     this.submitting = true;
     try {
-      // Mock：Phase 4 替换为 HMS Account Kit getAuthorizationCode()
-      await new Promise<void>((resolve) => setTimeout(() => resolve(), 500));
-      const mockAuthCode = 'mock-hw-' + Math.random().toString(36).slice(2, 10);
-      const res = await AuthApi.huaweiLogin(mockAuthCode);
+      const hwResult = await HuaweiAccountProvider.signIn();
+      const res = await AuthApi.huaweiLogin(hwResult.authCode);
       await this.handleSuccess(res);
     } catch (err) {
       this.handleApiError(err as Object, '华为账号登录失败');
@@ -228,10 +229,8 @@ export struct Login {
     if (this.submitting) return;
     this.submitting = true;
     try {
-      // Mock：Phase 4 替换为微信开放平台 sendAuth
-      await new Promise<void>((resolve) => setTimeout(() => resolve(), 500));
-      const mockAuthCode = 'mock-wx-' + Math.random().toString(36).slice(2, 10);
-      const res = await AuthApi.wechatLogin(mockAuthCode);
+      const wxResult = await WeChatAuthProvider.signIn();
+      const res = await AuthApi.wechatLogin(wxResult.authCode);
       await this.handleSuccess(res);
     } catch (err) {
       this.handleApiError(err as Object, '微信登录失败');

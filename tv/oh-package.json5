@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "@readmigo/tv",
+  "version": "0.1.0",
+  "description": "Readmigo tv HSP — RemoteController, TVOverview, focus engine (runtimeOS=smartTV)",
+  "apiType": "stageMode",
+  "kind": "hsp",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

@@ -1,0 +1,15 @@
+{
+  "signings": [
+    {
+      "name": "readmigo",
+      "type": "HarmonyOS",
+      "material": {
+        "certpath": "signing/readmigo-cn-release.cer",
+        "keyAlias": "readmigo-cn-release",
+        "keyPassword": "<REPLACE_ME: keystore password>",
+        "storeFile": "signing/readmigo-cn-release.p12",
+        "storePassword": "<REPLACE_ME: keystore password>"
+      }
+    }
+  ]
+}

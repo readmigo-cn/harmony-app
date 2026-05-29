@@ -1,5 +1,5 @@
 /**
- * HmsPushService.ets — W18-C4 HMS Push Kit 适配层
+ * HmsPushService.ets — W6 HMS Push Kit 适配层（真实 SDK + mock 降级）
  *
  * 责任：
  *   1) init()           启动期初始化 push SDK，订阅默认 topic
@@ -8,21 +8,36 @@
  *   4) subscribeTopic / unsubscribeTopic  按业务主题分组（new-book, system 等）
  *   5) onMessage()      接收前台推送，回调给 NotificationChannel 渲染
  *
- * 当前阶段：Phase 3 占位 + Mock。
- * Phase 5 接入：
- *   - import push from '@hms.push'  （华为 Push Kit Stage Mode）
- *   - manifest 增加 ohos.permission.NOTIFICATION_CONTROLLER
- *   - AGC Console 配置 service id + secret
- *
- * 设计要点：
- *   - 单例，避免多实例订阅同一 topic 造成回调倍增
- *   - token 在内存缓存 + Preferences 持久化（HMS 服务异常时仍可读）
- *   - reportToken 失败不阻塞 init，由后台重试队列处理
- *   - onMessage 多订阅者支持（NotificationChannel + analytics 各订一份）
+ * SDK 策略：
+ *   - 优先 import @kit.PushKit（HarmonyOS NEXT Stage Mode）
+ *   - 若 SDK 缺失，降级到 mock（token = mock-hms-token-<ts>）
+ *   - manifest 需声明 ohos.permission.NOTIFICATION_CONTROLLER
+ *   - AGC Console 需配置 Push Service id + secret
  */
 
 import { PreferencesManager } from '../../../../core/persistence/PreferencesManager';
 import { ApiConfig } from '../../../../api/client/ApiConfig';
+
+// Try real HMS Push Kit (HarmonyOS NEXT @kit.PushKit)
+let PushKit: {
+  init: () => Promise<void>;
+  getToken: (params?: object) => Promise<string>;
+  subscribe: (topic: string) => Promise<void>;
+  unsubscribe: (topic: string) => Promise<void>;
+  on: (event: string, cb: (msg: object) => void) => void;
+} | null = null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  PushKit = require('@kit.PushKit') as typeof PushKit;
+} catch (_e1) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    PushKit = require('@hms.push') as typeof PushKit;
+  } catch (_e2) {
+    console.warn('HmsPushService @kit.PushKit/@hms.push not available, using mock');
+  }
+}
 
 const TAG = 'HmsPushService';
 
@@ -68,12 +83,17 @@ class HmsPushServiceImpl {
         this.cachedToken = cached;
       }
 
-      // TODO(Phase 5): import push from '@hms.push';
-      //   await push.init();
-      //   push.on('messageReceived', (raw) => this.dispatch(this.toPushMessage(raw)));
-      //   const token = await push.getToken();
-      //   await this.persistToken(token);
-      this.startMockTokenIfNeeded();
+      if (PushKit) {
+        await PushKit.init();
+        PushKit.on('messageReceived', (raw: object) => {
+          const msg = this.toPushMessage(raw);
+          if (msg) this.dispatch(msg);
+        });
+        const token = await PushKit.getToken({ scope: 'HCM' });
+        await this.persistToken(token);
+      } else {
+        this.startMockTokenIfNeeded();
+      }
 
       // 默认订阅系统公告 topic（所有用户都收）
       await this.subscribeTopic('system-broadcast');
@@ -86,8 +106,17 @@ class HmsPushServiceImpl {
   /** 获取设备 push token；首次调用可能等待 SDK 异步生成。 */
   async getToken(): Promise<string> {
     if (this.cachedToken.length > 0) return this.cachedToken;
-    // TODO(Phase 5): const token = await push.getToken({ scope: 'HCM' });
-    this.startMockTokenIfNeeded();
+    if (PushKit) {
+      try {
+        const token = await PushKit.getToken({ scope: 'HCM' });
+        await this.persistToken(token);
+      } catch (e) {
+        console.warn(`${TAG} getToken real failed: ${(e as Error).message}`);
+        this.startMockTokenIfNeeded();
+      }
+    } else {
+      this.startMockTokenIfNeeded();
+    }
     return this.cachedToken;
   }
 
@@ -108,10 +137,9 @@ class HmsPushServiceImpl {
     }
 
     try {
-      // TODO(Phase 5): 真实 endpoint 走 HttpClient.post('/push/devices', ...)
-      // 这里直接 fetch 模拟，避免循环依赖 HttpClient（HttpClient 反向依赖 UserStore）
+      // Use fetch directly to avoid circular dependency: HttpClient -> UserStore -> HmsPushService
       const url = `${ApiConfig.baseUrl}/push/devices`;
-      const ok = await this.mockReport(url, { userId, token, platform: 'harmony' });
+      const ok = await this.postReport(url, { userId, token, platform: 'harmony' });
       if (ok) {
         await PreferencesManager.setString(KEY_TOKEN_REPORTED_USER, fingerprint);
       }
@@ -126,7 +154,9 @@ class HmsPushServiceImpl {
   async subscribeTopic(topic: string): Promise<void> {
     if (this.subscribedTopics.has(topic)) return;
     try {
-      // TODO(Phase 5): await push.subscribe(topic);
+      if (PushKit) {
+        await PushKit.subscribe(topic);
+      }
       this.subscribedTopics.add(topic);
       console.info(`${TAG} subscribed topic=${topic}`);
     } catch (e) {
@@ -137,7 +167,9 @@ class HmsPushServiceImpl {
   async unsubscribeTopic(topic: string): Promise<void> {
     if (!this.subscribedTopics.has(topic)) return;
     try {
-      // TODO(Phase 5): await push.unsubscribe(topic);
+      if (PushKit) {
+        await PushKit.unsubscribe(topic);
+      }
       this.subscribedTopics.delete(topic);
       console.info(`${TAG} unsubscribed topic=${topic}`);
     } catch (e) {
@@ -173,6 +205,11 @@ class HmsPushServiceImpl {
     });
   }
 
+  private async persistToken(token: string): Promise<void> {
+    this.cachedToken = token;
+    await PreferencesManager.setString(KEY_TOKEN, token);
+  }
+
   private startMockTokenIfNeeded(): void {
     if (this.cachedToken.length > 0) return;
     const token = `${HmsPushServiceImpl.MOCK_TOKEN_PREFIX}${Date.now().toString(36)}`;
@@ -180,15 +217,47 @@ class HmsPushServiceImpl {
     PreferencesManager.setString(KEY_TOKEN, token).catch(() => {});
   }
 
-  /** Mock 上报：模拟网络延迟 + 90% 成功率，便于演示重试链路。 */
-  private async mockReport(url: string, payload: object): Promise<boolean> {
+  /** Normalize raw HMS push message object to PushMessage. */
+  private toPushMessage(raw: object): PushMessage | null {
+    try {
+      const r = raw as Record<string, unknown>;
+      return {
+        messageId: (r['messageId'] as string) ?? `auto-${Date.now()}`,
+        category: (r['category'] as string) ?? 'system',
+        title: r['title'] as string | undefined,
+        body: r['body'] as string | undefined,
+        data: (r['data'] as Record<string, string>) ?? {},
+        timestamp: (r['timestamp'] as number) ?? Date.now(),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** POST push token to backend. Uses native fetch to avoid HttpClient circular dep. */
+  private async postReport(url: string, payload: object): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      setTimeout(() => {
-        // 90% 成功
-        const ok = Math.random() < 0.9;
-        console.info(`${TAG} mockReport url=${url} payload=${JSON.stringify(payload)} ok=${ok}`);
-        resolve(ok);
-      }, Math.min(REPORT_TIMEOUT_MS, 200));
+      const timer = setTimeout(() => resolve(false), REPORT_TIMEOUT_MS);
+      try {
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+          .then((res) => {
+            clearTimeout(timer);
+            resolve(res.ok);
+          })
+          .catch((e: Error) => {
+            clearTimeout(timer);
+            console.warn(`${TAG} postReport fetch error: ${e.message}`);
+            resolve(false);
+          });
+      } catch (e) {
+        clearTimeout(timer);
+        console.warn(`${TAG} postReport error: ${(e as Error).message}`);
+        resolve(false);
+      }
     });
   }
 }

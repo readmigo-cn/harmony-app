@@ -1,0 +1,11 @@
+{
+  "module": {
+    "name": "tv",
+    "type": "shared",
+    "description": "Readmigo tv HSP — RemoteController, TVOverview, focus engine",
+    "deviceTypes": [
+      "smartTV"
+    ],
+    "deliveryWithInstall": true
+  }
+}

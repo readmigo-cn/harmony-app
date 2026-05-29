@@ -154,6 +154,14 @@ class NotificationChannelImpl {
     if (this.initialized) return;
     this.initialized = true;
     try {
+      // Request system notification permission (W6: call real API)
+      try {
+        await notificationManager.requestEnableNotification();
+      } catch (e) {
+        // Permission already granted or user dismissed — non-fatal
+        console.warn(`${TAG} requestEnableNotification: ${(e as Error).message}`);
+      }
+
       // 把所有 channel 默认开关回灌 AppStorage（供 UI 同步读）
       const cats = Object.keys(CHANNEL_CONFIGS) as NotificationCategory[];
       for (let i = 0; i < cats.length; i++) {

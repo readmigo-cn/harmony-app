@@ -37,15 +37,13 @@ import { RemoteConfig } from '../core/experiments/RemoteConfig';
 import { PerformanceMonitor } from '../core/performance/PerformanceMonitor';
 import { StartupOptimizer, TaskPriority } from '../core/performance/StartupOptimizer';
 import { MemoryGuard } from '../core/performance/MemoryGuard';
+// W6：支付 deeplink 回调（alipays:// / weixin://）
+import { PaymentDeepLinkHandler } from '../features/account/service/payment/PaymentDeepLinkHandler';
+// W6 CN-compliance: runtime config + auth providers
+import { SA_SERVER_URL, SA_PROJECT_NAME, AGC_APP_ID, SENTRY_DSN, SENTRY_ENV } from '../core/config/CnConfig';
+import { WeChatAuthProvider } from '../features/account/service/WeChatAuthProvider';
 
 const TAG = 'EntryAbility';
-
-// 神策 / AGC / Sentry 接入参数（生产环境从远端配置中心拉取）
-const SA_SERVER_URL = 'https://sa.readmigo.cn/sa';
-const SA_PROJECT_NAME = 'readmigo_harmony';
-const AGC_APP_ID = '_PLACEHOLDER_AGC_APP_ID_';
-const SENTRY_DSN = 'https://_placeholder_@sentry.io/_placeholder_';
-const SENTRY_ENV = 'production';
 
 /**
  * EntryAbility：app 进程入口。
@@ -174,6 +172,11 @@ export default class EntryAbility extends UIAbility {
       await RemoteConfig.init();
     });
 
+    // W6：WeChat AppID registration (must run before any WeChat auth call)
+    optimizer.registerTask('wechat_register', TaskPriority.NORMAL, () => {
+      WeChatAuthProvider.register();
+    });
+
     // W18-C4：HMS Push Kit（远程配置之后）
     optimizer.registerTask('hms_push_init', TaskPriority.NORMAL, async () => {
       await HmsPushService.init();
@@ -233,12 +236,30 @@ export default class EntryAbility extends UIAbility {
 
   /**
    * 热启动 / 单实例复用时收到新 want。
+   * 支付回调（alipays:// / weixin://）优先交给 PaymentDeepLinkHandler，
+   * 不进普通路由，避免误触发页面跳转。
    */
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     if (want && want.uri) {
+      // W6: WeChat OAuth redirect-back (scheme: wx<appid>://)
+      if (want.uri.startsWith('wx')) {
+        WeChatAuthProvider.handleCallback(want.uri, (result) => {
+          if (result) {
+            const resolver = (globalThis as Record<string, unknown>)['__wechat_pending_resolve'];
+            if (typeof resolver === 'function') {
+              (resolver as (r: object) => void)(result);
+              delete (globalThis as Record<string, unknown>)['__wechat_pending_resolve'];
+              delete (globalThis as Record<string, unknown>)['__wechat_pending_reject'];
+            }
+          }
+        });
+        return;
+      }
+      if (PaymentDeepLinkHandler.dispatch(want.uri)) {
+        return;
+      }
       this.pendingDeepLink = want.uri;
       AppStorage.SetOrCreate<string>(StoreKeys.APP_PENDING_DEEP_LINK, want.uri);
-      // NavPathStack 应该已经 bound，可以直接跳转
       RouterService.handleDeepLink(want.uri);
     }
   }

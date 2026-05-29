@@ -1,0 +1,45 @@
+{
+  "client": [
+    {
+      "appid": "<REPLACE_ME: app_id from AGC console — numeric string>",
+      "package_name": "cn.readmigo.app",
+      "package_name_signature": "<REPLACE_ME: SHA-256 certificate fingerprint from AGC>",
+      "client_id": "<REPLACE_ME: client_id from AGC>",
+      "client_secret": "<REPLACE_ME: client_secret from AGC>",
+      "api_key": "<REPLACE_ME: api_key from AGC>",
+      "access_key": "<REPLACE_ME: access_key from AGC>"
+    }
+  ],
+  "services": {
+    "analytics": {
+      "collector_url": "https://analyticsapi.huawei.com",
+      "collector_url_ru": "https://analyticsapi.iap.hicloud.com",
+      "collector_url_drc": "https://analyticsapi.vmall.com",
+      "collector_url_dra": "https://analyticsapi-dra.dt.hicloud.com",
+      "report_url": "https://analyticsapi.huawei.com",
+      "report_url_ru": "https://analyticsapi.iap.hicloud.com",
+      "report_url_drc": "https://analyticsapi.vmall.com",
+      "report_url_dra": "https://analyticsapi-dra.dt.hicloud.com"
+    },
+    "push": {
+      "push_url": "https://push-api.cloud.huawei.com",
+      "push_url_ru": "https://push-api.iap.hicloud.com",
+      "push_url_drc": "https://push-api.vmall.com",
+      "push_url_dra": "https://push-api-dra.dt.hicloud.com"
+    },
+    "crash": {
+      "crash_url": "https://agc-crash-api.cloud.huawei.com",
+      "crash_url_ru": "https://agc-crash-api.iap.hicloud.com",
+      "crash_url_drc": "https://agc-crash-api.vmall.com",
+      "crash_url_dra": "https://agc-crash-api-dra.dt.hicloud.com"
+    },
+    "account": {
+      "account_url": "https://oauth-login.cloud.huawei.com",
+      "account_url_ru": "https://oauth-login.iap.hicloud.com"
+    },
+    "iap": {
+      "url": "https://iap.cloud.huawei.com",
+      "url_ru": "https://iap.iap.hicloud.com"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "@readmigo/paywall",
+  "version": "0.1.0",
+  "description": "Readmigo paywall HSP — PaywallView, IAPService, restore flow (W7: payment files deferred)",
+  "apiType": "stageMode",
+  "kind": "hsp",
+  "author": "Readmigo CN Team",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}
