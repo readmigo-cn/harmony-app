@@ -27,6 +27,8 @@ import common from '@ohos.app.ability.common';
 import Want from '@ohos.app.ability.Want';
 import { SsmlBuilder } from '../../../features/audiobook/components/SsmlBuilder';
 import { SettingsStore } from '../../../store/SettingsStore';
+import { TtsV3Api } from '../../../api/audiobooks/TtsV3Api';
+import { CloudTtsPlayer } from './CloudTtsPlayer';
 
 // ---------- 公共类型 ----------
 
@@ -61,6 +63,12 @@ export interface TtsHandle {
   onProgress(callback: (charIndex: number, total: number) => void): void;
   onComplete(callback: () => void): void;
   onError(callback: (err: Error) => void): void;
+  /**
+   * 句级高亮事件（C.2.b 新增；可选）。
+   * 仅 CloudTtsPlayer（provider='tts-v3'）实现；mock provider 不触发。
+   * 调用方可写：if (typeof handle.onSentenceChange === 'function') handle.onSentenceChange(cb)
+   */
+  onSentenceChange?(callback: (sentenceIdx: number) => void): void;
 }
 
 // ---------- IPC 命令码（与 TtsServiceExtAbility 对齐） ----------
@@ -192,7 +200,7 @@ export class TtsService {
   private provider: TtsProvider = 'huawei-system';
   private voice: string = 'huawei-female-cn';
   private speed: number = 1.0;
-  private currentHandle: MockTtsHandle | null = null;
+  private currentHandle: TtsHandle | null = null;
   private nextId: number = 1;
   private context: common.UIAbilityContext | null = null;
 
@@ -256,6 +264,28 @@ export class TtsService {
     }
     const useVoice = opts?.voice ?? this.voice;
     const useSpeed = opts?.speed ?? this.speed;
+
+    // P0-C.2.b: provider='tts-v3' → 拉 manifest + CloudTtsPlayer 流式 MP3 播放
+    // manifest=null（端点未就绪 / 网络失败）或 player.init 抛错时回退到下方 mock 路径
+    if (this.provider === 'tts-v3' && opts?.bookId) {
+      try {
+        const manifest = await TtsV3Api.getManifest({
+          bookId: opts.bookId,
+          chapterId: (opts.chapterIndex ?? 0).toString(),
+          voiceId: useVoice,
+          speed: useSpeed,
+        });
+        if (manifest) {
+          const id = `tts-v3-${this.nextId++}`;
+          const player = new CloudTtsPlayer(id, manifest);
+          await player.init(useSpeed);
+          this.currentHandle = player;
+          return player;
+        }
+      } catch (e) {
+        console.warn(`[TtsService] tts-v3 init failed, fallback to mock: ${(e as Error).message}`);
+      }
+    }
 
     // 生成 SSML（虽然 Mock 不会真送给 SDK，但保持完整链路）
     const ssml = SsmlBuilder.fromPlainText(text, {
