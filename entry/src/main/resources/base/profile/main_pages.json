@@ -42,6 +42,22 @@
     "features/multi-platform/pages/tv/SmartScreenAudiobook",
     "features/multi-platform/pages/watch/WatchHome",
     "features/multi-platform/pages/watch/WatchVocab",
-    "features/multi-platform/pages/watch/WatchStats"
+    "features/multi-platform/pages/watch/WatchStats",
+    "features/agora/pages/AgoraPage",
+    "features/agora/pages/PostDetailPage",
+    "features/agora/pages/CreatePostPage",
+    "features/agora/pages/CommentDetailPage",
+    "features/stats/pages/StatsPage",
+    "features/stats/pages/BookStatsDetailPage",
+    "features/badges/pages/BadgesPage",
+    "features/badges/pages/BadgeDetailPage",
+    "features/quotes/pages/QuotesPage",
+    "features/quotes/pages/QuoteDetailPage",
+    "features/annual-report/pages/AnnualReportPage",
+    "features/annual-report/pages/AnnualReportHistoryPage",
+    "features/authors/pages/AuthorProfilePage",
+    "features/authors/pages/FollowingAuthorsPage",
+    "features/series/pages/SeriesListPage",
+    "features/series/pages/SeriesDetailPage"
   ]
 }

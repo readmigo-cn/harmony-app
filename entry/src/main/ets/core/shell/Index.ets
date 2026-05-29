@@ -25,6 +25,8 @@ import { TicketDetailPage } from '../../features/support/pages/TicketDetail';
 @Entry
 @Component
 struct Index {
+  // W2: shell stays at 4 tabs (Discover / Library / Audiobook / Me).
+  // New W2 features (agora / stats / badges / quotes / annual-report / authors / series) are reached via deep links + Navigator pushes, not tab bar.
   @State currentTab: number = 0;
   // W5-C4：根组件透传 theme 给所有后代；@StorageProp 触发重渲染
   @StorageProp(APP_THEME_STORAGE_KEY) @Watch('onThemeChange') storageTheme: EffectiveTheme = 'day';

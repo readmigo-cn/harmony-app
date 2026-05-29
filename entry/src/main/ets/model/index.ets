@@ -5,3 +5,4 @@ export * from './Chapter';
 export * from './ReadingProgress';
 export * from './Highlight';
 export * from './ExplainData';
+export * from './Quote';

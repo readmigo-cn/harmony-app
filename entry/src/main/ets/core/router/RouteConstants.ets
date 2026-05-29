@@ -158,6 +158,68 @@ export class RoutePath {
   static readonly COMPONENT_GALLERY: string = 'component-gallery';
   static readonly COMPONENT_GALLERY_URL: string = 'features/dev/pages/dev/ComponentGallery';
 
+  // ─── agora (W2) ─────────────────────────────────────────
+  /** W2：社区主页（动态流）。 */
+  static readonly AGORA: string = 'Agora';
+  static readonly AGORA_URL: string = 'features/agora/pages/AgoraPage';
+  /** W2：帖子详情页。 */
+  static readonly AGORA_POST_DETAIL: string = 'AgoraPostDetail';
+  static readonly AGORA_POST_DETAIL_URL: string = 'features/agora/pages/PostDetailPage';
+  /** W2：发帖页（auth required）。 */
+  static readonly AGORA_CREATE_POST: string = 'AgoraCreatePost';
+  static readonly AGORA_CREATE_POST_URL: string = 'features/agora/pages/CreatePostPage';
+  /** W2：评论详情页（楼中楼）。 */
+  static readonly AGORA_COMMENT_DETAIL: string = 'AgoraCommentDetail';
+  static readonly AGORA_COMMENT_DETAIL_URL: string = 'features/agora/pages/CommentDetailPage';
+
+  // ─── stats (W2) ─────────────────────────────────────────
+  /** W2：阅读统计 dashboard。 */
+  static readonly STATS: string = 'Stats';
+  static readonly STATS_URL: string = 'features/stats/pages/StatsPage';
+  /** W2：单本书阅读统计详情。 */
+  static readonly STATS_BOOK_DETAIL: string = 'StatsBookDetail';
+  static readonly STATS_BOOK_DETAIL_URL: string = 'features/stats/pages/BookStatsDetailPage';
+
+  // ─── badges (W2) ────────────────────────────────────────
+  /** W2：3D 勋章成就墙。 */
+  static readonly BADGES: string = 'Badges';
+  static readonly BADGES_URL: string = 'features/badges/pages/BadgesPage';
+  /** W2：勋章详情 + 分享卡。 */
+  static readonly BADGES_DETAIL: string = 'BadgesDetail';
+  static readonly BADGES_DETAIL_URL: string = 'features/badges/pages/BadgeDetailPage';
+
+  // ─── quotes (W2) ────────────────────────────────────────
+  /** W2：每日金句 / 热门金句合集。 */
+  static readonly QUOTES: string = 'Quotes';
+  static readonly QUOTES_URL: string = 'features/quotes/pages/QuotesPage';
+  /** W2：金句详情。 */
+  static readonly QUOTES_DETAIL: string = 'QuotesDetail';
+  static readonly QUOTES_DETAIL_URL: string = 'features/quotes/pages/QuoteDetailPage';
+
+  // ─── annual-report (W2) ─────────────────────────────────
+  /** W2：年度阅读报告（沉浸式翻页）。 */
+  static readonly ANNUAL_REPORT: string = 'AnnualReport';
+  static readonly ANNUAL_REPORT_URL: string = 'features/annual-report/pages/AnnualReportPage';
+  /** W2：历年年度报告列表。 */
+  static readonly ANNUAL_REPORT_HISTORY: string = 'AnnualReportHistory';
+  static readonly ANNUAL_REPORT_HISTORY_URL: string = 'features/annual-report/pages/AnnualReportHistoryPage';
+
+  // ─── authors (W2) ───────────────────────────────────────
+  /** W2：作者主页。 */
+  static readonly AUTHORS_PROFILE: string = 'AuthorsProfile';
+  static readonly AUTHORS_PROFILE_URL: string = 'features/authors/pages/AuthorProfilePage';
+  /** W2：我关注的作者列表（auth required）。 */
+  static readonly AUTHORS_FOLLOWING: string = 'AuthorsFollowing';
+  static readonly AUTHORS_FOLLOWING_URL: string = 'features/authors/pages/FollowingAuthorsPage';
+
+  // ─── series (W2) ────────────────────────────────────────
+  /** W2：丛书 / 系列列表。 */
+  static readonly SERIES_LIST: string = 'SeriesList';
+  static readonly SERIES_LIST_URL: string = 'features/series/pages/SeriesListPage';
+  /** W2：系列详情（含书目顺序）。 */
+  static readonly SERIES_DETAIL: string = 'SeriesDetail';
+  static readonly SERIES_DETAIL_URL: string = 'features/series/pages/SeriesDetailPage';
+
   // ── new entries below ──
   // (rebase-friendly anchor for future routes)
 }
@@ -222,6 +284,36 @@ export class PagePath {
   // ─── notification ───────────────────────────────────────
   static readonly NOTIFICATION_CENTER: string = 'features/notification/pages/NotificationCenter';
 
+  // ─── agora (W2) ─────────────────────────────────────────
+  static readonly AGORA: string = 'features/agora/pages/AgoraPage';
+  static readonly AGORA_POST_DETAIL: string = 'features/agora/pages/PostDetailPage';
+  static readonly AGORA_CREATE_POST: string = 'features/agora/pages/CreatePostPage';
+  static readonly AGORA_COMMENT_DETAIL: string = 'features/agora/pages/CommentDetailPage';
+
+  // ─── stats (W2) ─────────────────────────────────────────
+  static readonly STATS: string = 'features/stats/pages/StatsPage';
+  static readonly STATS_BOOK_DETAIL: string = 'features/stats/pages/BookStatsDetailPage';
+
+  // ─── badges (W2) ────────────────────────────────────────
+  static readonly BADGES: string = 'features/badges/pages/BadgesPage';
+  static readonly BADGES_DETAIL: string = 'features/badges/pages/BadgeDetailPage';
+
+  // ─── quotes (W2) ────────────────────────────────────────
+  static readonly QUOTES: string = 'features/quotes/pages/QuotesPage';
+  static readonly QUOTES_DETAIL: string = 'features/quotes/pages/QuoteDetailPage';
+
+  // ─── annual-report (W2) ─────────────────────────────────
+  static readonly ANNUAL_REPORT: string = 'features/annual-report/pages/AnnualReportPage';
+  static readonly ANNUAL_REPORT_HISTORY: string = 'features/annual-report/pages/AnnualReportHistoryPage';
+
+  // ─── authors (W2) ───────────────────────────────────────
+  static readonly AUTHORS_PROFILE: string = 'features/authors/pages/AuthorProfilePage';
+  static readonly AUTHORS_FOLLOWING: string = 'features/authors/pages/FollowingAuthorsPage';
+
+  // ─── series (W2) ────────────────────────────────────────
+  static readonly SERIES_LIST: string = 'features/series/pages/SeriesListPage';
+  static readonly SERIES_DETAIL: string = 'features/series/pages/SeriesDetailPage';
+
   // ── new entries below ──
   // (rebase-friendly anchor for future page paths)
 }
@@ -239,6 +331,9 @@ export const AUTH_REQUIRED_ROUTES: ReadonlySet<string> = new Set<string>([
   RoutePath.TICKET_DETAIL,
   RoutePath.SUBSCRIPTIONS,
   RoutePath.REFUND_FLOW,
+  // W2：发帖、关注列表需要登录态
+  RoutePath.AGORA_CREATE_POST,
+  RoutePath.AUTHORS_FOLLOWING,
 ]);
 
 // ---- Route param 类型 ----
