@@ -20,16 +20,33 @@ import {
   type DeleteHighlightIntent,
   type SaveBookmarkIntent,
   type DeleteBookmarkIntent,
+  type TranslateSelectionIntent,
 } from '../intent/ReaderIntents';
+import { TranslateService } from '../../ai-tools/service/TranslateService';
+import type { WordExplanation } from '../../ai-tools/service/TranslateService';
 import type { Book } from '../../../model/Book';
 import type { Chapter, ChapterContent } from '../../../model/Chapter';
 import type { Highlight } from '../../../model/Highlight';
 import type { Bookmark } from '../service/BookmarksService';
 
+// ---------------------------------------------------------------------------
+// State types
+// ---------------------------------------------------------------------------
+
+export interface LookupState {
+  status: 'idle' | 'loading' | 'streaming' | 'data' | 'error';
+  word?: string;
+  contextSentence?: string;
+  explanation?: WordExplanation;
+  streamingText?: string;
+  error?: { code: string; message: string };
+}
+
 export interface ReaderSheets {
   toc?: boolean;
   settings?: boolean;
   highlights?: boolean;
+  wordExplain?: boolean;
 }
 
 export interface ReaderData {
@@ -42,6 +59,7 @@ export interface ReaderData {
   highlights?: Highlight[];
   bookmarks?: Bookmark[];
   sessionId?: string;
+  lookup?: LookupState;
 }
 
 export type ReaderState =
@@ -49,6 +67,10 @@ export type ReaderState =
   | { status: 'loading' }
   | { status: 'data'; data: ReaderData }
   | { status: 'error'; error: { code: string; message: string } };
+
+// ---------------------------------------------------------------------------
+// ViewModel
+// ---------------------------------------------------------------------------
 
 export class ReaderViewModel extends FeatureViewModel<ReaderData> {
   readonly kind = 'reader';
@@ -81,7 +103,10 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
         this.handleOpenSettings();
         break;
       case 'reader.lookupWord':
-        this.handleLookupWord(intent as LookupWordIntent);
+        await this.handleLookupWord(intent as LookupWordIntent);
+        break;
+      case 'reader.translateSelection':
+        this.handleTranslateSelection(intent as TranslateSelectionIntent);
         break;
       case 'reader.saveHighlight':
         await this.handleSaveHighlight(intent as SaveHighlightIntent);
@@ -102,6 +127,144 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
         break;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // lookupWord — end-to-end via TranslateService
+  // ---------------------------------------------------------------------------
+
+  private async handleLookupWord(intent: LookupWordIntent): Promise<void> {
+    if (this.state.status !== 'data') return;
+
+    const { word, ctxSentence } = intent.payload;
+    const data = this.state.data;
+
+    // Record session activity
+    if (data.sessionId) ReadingSession.recordWordLookup(data.sessionId, word);
+
+    // Set loading + open sheet
+    this.state = {
+      status: 'data',
+      data: {
+        ...data,
+        lookup: { status: 'loading', word, contextSentence: ctxSentence ?? '' },
+        sheets: { ...(data.sheets ?? {}), wordExplain: true },
+      },
+    };
+
+    try {
+      const explanation = await TranslateService.shared.lookupWord(
+        word,
+        ctxSentence ?? '',
+        'zh',
+      );
+
+      if (this.state.status !== 'data') return;
+      this.state = {
+        status: 'data',
+        data: {
+          ...this.state.data,
+          lookup: { status: 'data', word, contextSentence: ctxSentence ?? '', explanation },
+        },
+      };
+    } catch (e) {
+      if (this.state.status !== 'data') return;
+      this.state = {
+        status: 'data',
+        data: {
+          ...this.state.data,
+          lookup: {
+            status: 'error',
+            word,
+            error: { code: (e as Error).name ?? 'error', message: (e as Error).message },
+          },
+        },
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // translateSelection — streaming via TranslateService.translateSentenceStream
+  // ---------------------------------------------------------------------------
+
+  private handleTranslateSelection(intent: TranslateSelectionIntent): void {
+    if (this.state.status !== 'data') return;
+
+    const { text, sourceLang, targetLang } = intent.payload;
+    const data = this.state.data;
+
+    // Set streaming state + open sheet
+    this.state = {
+      status: 'data',
+      data: {
+        ...data,
+        lookup: { status: 'streaming', word: text, streamingText: '', contextSentence: text },
+        sheets: { ...(data.sheets ?? {}), wordExplain: true },
+      },
+    };
+
+    const stream = TranslateService.shared.translateSentenceStream(text, { sourceLang, targetLang });
+    let accumulated = '';
+
+    const advance = async (): Promise<void> => {
+      try {
+        for await (const chunk of stream) {
+          accumulated += chunk;
+          if (this.state.status !== 'data') return;
+          this.state = {
+            status: 'data',
+            data: {
+              ...this.state.data,
+              lookup: {
+                status: 'streaming',
+                word: text,
+                contextSentence: text,
+                streamingText: accumulated,
+              },
+            },
+          };
+        }
+        // done
+        if (this.state.status !== 'data') return;
+        this.state = {
+          status: 'data',
+          data: {
+            ...this.state.data,
+            lookup: {
+              status: 'data',
+              word: text,
+              contextSentence: text,
+              explanation: {
+                word: text,
+                definition: accumulated,
+                partOfSpeech: '',
+                examples: [],
+                wordFamily: [],
+              },
+            },
+          },
+        };
+      } catch (e) {
+        if (this.state.status !== 'data') return;
+        this.state = {
+          status: 'data',
+          data: {
+            ...this.state.data,
+            lookup: {
+              status: 'error',
+              word: text,
+              error: { code: (e as Error).name ?? 'error', message: (e as Error).message },
+            },
+          },
+        };
+      }
+    };
+
+    advance().catch(() => {});
+  }
+
+  // ---------------------------------------------------------------------------
+  // Existing handlers (unchanged)
+  // ---------------------------------------------------------------------------
 
   private async handleOpenBook(intent: OpenBookIntent): Promise<void> {
     const { bookId } = intent.payload;
@@ -137,6 +300,7 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
           highlights,
           bookmarks,
           sessionId,
+          lookup: { status: 'idle' },
         },
       };
     } catch (e) {
@@ -214,12 +378,6 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
 
   private handleSelectText(intent: SelectTextIntent): void {
     void intent;
-  }
-
-  private handleLookupWord(intent: LookupWordIntent): void {
-    if (this.state.status !== 'data') return;
-    const sessionId = this.state.data.sessionId;
-    if (sessionId) ReadingSession.recordWordLookup(sessionId, intent.payload.word);
   }
 
   private async handleSaveHighlight(intent: SaveHighlightIntent): Promise<void> {
@@ -303,10 +461,6 @@ export class ReaderViewModel extends FeatureViewModel<ReaderData> {
     } catch (_e) {}
   }
 
-  /**
-   * Call from NavDestination.aboutToDisappear (via adapter) to finalise the session.
-   * Phase 5: wire EntryAbility.onBackground to ReadingSession.onBackground() directly.
-   */
   async closeBook(): Promise<void> {
     if (this.state.status !== 'data') return;
     const sessionId = this.state.data.sessionId;

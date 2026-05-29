@@ -20,7 +20,11 @@ import { AppColors } from '../../../core/theme/AppColors';
 import { AppFontSize, AppFontWeight } from '../../../core/theme/AppTypography';
 import { AppSpacing, AppRadius } from '../../../core/theme/AppSpacing';
 import { IntentBus } from '../../../core/intent/IntentBus';
-import { makeSaveHighlightIntent, makeLookupWordIntent } from '../intent/ReaderIntents';
+import {
+  makeSaveHighlightIntent,
+  makeLookupWordIntent,
+  makeTranslateSelectionIntent,
+} from '../intent/ReaderIntents';
 import type { HighlightColor } from '../../../model/Highlight';
 
 /** 选区范围（屏幕坐标 + 字符偏移，与 typesetting.HitResult 兼容） */
@@ -72,6 +76,10 @@ export struct SelectionLayer {
   @Prop chapterId: string = '';
   /** 当前章节 index */
   @Prop chapterIndex: number = 0;
+  /** 翻译源语言（默认 auto） */
+  @Prop sourceLang: 'en' | 'zh' | 'auto' = 'auto';
+  /** 翻译目标语言（默认 zh） */
+  @Prop targetLang: 'en' | 'zh' = 'zh';
 
   /** 各种工具栏按钮回调 */
   onLookupWord?: (word: string, context: string) => void;
@@ -304,6 +312,18 @@ export struct SelectionLayer {
         });
       }
       this.toolbarBtn('翻译', '🌐', () => {
+        if (this.selection.range) {
+          IntentBus.getInstance().publish(makeTranslateSelectionIntent({
+            range: {
+              startCharOffset: this.selection.range.startCharOffset,
+              endCharOffset: this.selection.range.endCharOffset,
+              chapterId: this.chapterId,
+            },
+            text: this.selection.text,
+            sourceLang: this.sourceLang,
+            targetLang: this.targetLang,
+          }));
+        }
         this.onTranslate?.(this.selection.text);
       });
       this.toolbarBtn('朗读', '🔊', () => {

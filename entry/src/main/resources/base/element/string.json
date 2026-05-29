@@ -181,6 +181,42 @@
       "value": "Pause"
     },
     {
+      "name": "audiobook_continue_listening",
+      "value": "Continue Listening"
+    },
+    {
+      "name": "audiobook_recently_listened",
+      "value": "Recently Listened"
+    },
+    {
+      "name": "audiobook_popular",
+      "value": "Popular"
+    },
+    {
+      "name": "audiobook_search_placeholder",
+      "value": "Search audiobooks..."
+    },
+    {
+      "name": "audiobook_search_results",
+      "value": "Search Results"
+    },
+    {
+      "name": "paywall_tts_title",
+      "value": "Upgrade to Pro"
+    },
+    {
+      "name": "paywall_tts_body",
+      "value": "TTS v3 audiobooks require a Pro subscription."
+    },
+    {
+      "name": "paywall_upgrade_cta",
+      "value": "View Plans"
+    },
+    {
+      "name": "subtitle_guide_tip",
+      "value": "This audiobook supports sentence-level highlighting while listening."
+    },
+    {
       "name": "me_title",
       "value": "Me"
     },

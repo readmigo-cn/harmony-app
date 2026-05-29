@@ -181,6 +181,42 @@
       "value": "暂停"
     },
     {
+      "name": "audiobook_continue_listening",
+      "value": "继续收听"
+    },
+    {
+      "name": "audiobook_recently_listened",
+      "value": "最近收听"
+    },
+    {
+      "name": "audiobook_popular",
+      "value": "热门有声书"
+    },
+    {
+      "name": "audiobook_search_placeholder",
+      "value": "搜索有声书..."
+    },
+    {
+      "name": "audiobook_search_results",
+      "value": "搜索结果"
+    },
+    {
+      "name": "paywall_tts_title",
+      "value": "升级到专业版"
+    },
+    {
+      "name": "paywall_tts_body",
+      "value": "TTS v3 有声书需要专业版订阅。"
+    },
+    {
+      "name": "paywall_upgrade_cta",
+      "value": "查看方案"
+    },
+    {
+      "name": "subtitle_guide_tip",
+      "value": "此有声书支持收听时逐句高亮。"
+    },
+    {
       "name": "me_title",
       "value": "我的"
     },

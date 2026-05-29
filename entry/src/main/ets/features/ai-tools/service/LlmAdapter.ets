@@ -1,36 +1,30 @@
 /**
- * LlmAdapter.ets — W10-C3 LLM 适配层（ArkTS 端）
- *
- * 主旨：
- *   - 默认走后端代理 `/api/v1/ai/*`，由 server-cn 选择 provider（DeepSeek / Qwen / 文心 / 智谱）
- *     —— 服务端密钥不下发到客户端，符合中国市场合规要求
- *   - 同时抽出 provider switch 接口，POC 场景允许客户端直连（内部实验，默认关闭）
+ * LlmAdapter.ets — W4 LLM 适配层（ArkTS 端）
  *
  * Provider 模式：
- *   - 'server-proxy'   (default) → 走 HttpClient + AiApi，等同现有调用链
- *   - 'direct-deepseek' / 'direct-qwen' → 客户端持密钥直连 OpenAI 兼容协议（仅 POC）
+ *   - 'server-proxy'   (default) → 走 HttpClient + AiApi，后端转发给 LLM provider
+ *   - 'direct-deepseek' / 'direct-qwen' → POC 直连 OpenAI 兼容协议（仅内部实验）
  *
  * 接口：
- *   - chat(messages, opts?)            → Promise<string>
- *   - chatStream(messages, opts, sink) → () => void   返回 stop()
- *   - embeddings(text)                 → Promise<number[]>   预留 W12 向量检索
- *   - getQuota()                       → Promise<QuotaStatus>
+ *   - chat(messages, opts?)                         → Promise<string>
+ *   - chatStream(messages, opts, sink)              → () => void   返回 stop()
+ *   - stream(prompt, opts?)                         → { iterator: AsyncIterableIterator<string>; abort: () => void }
+ *   - complete(prompt, opts?)                       → Promise<string>
+ *   - embeddings(text)                              → Promise<number[]>
+ *   - getQuota()                                    → Promise<QuotaStatus>
+ *   - configure(cfg)                                → void  (singleton 配置)
  *
- * 跨调用复用：
- *   - 重试 + 超时 + 退避配置直接复用 HttpClient 的 RequestOptions
- *   - SSE 流式直接复用 SseClient（与 AiApi 一致）
- *   - Token 估算：本地粗略 4 chars ≈ 1 token，便于客户端裁剪 prompt 长度
+ * 所有后端 AI 调用走 /api/v1/ai/* 端点，服务端持密钥，客户端不暴露。
  */
 
 import http from '@ohos.net.http';
 import { HttpClient, RequestOptions, ApiError } from '../../../api/client/HttpClient';
 import { SseClient } from '../../../api/client/SseClient';
-import { ApiConfig } from '../../../api/client/ApiConfig';
-import { UserStore } from '../../../store/UserStore';
 import { AiApi, QuotaStatus } from '../../../api/ai/AiApi';
+import { SensorsAnalytics } from '../../../core/analytics/SensorsAnalytics';
 
 // ---------------------------------------------------------------------------
-// Types
+// Public types
 // ---------------------------------------------------------------------------
 
 export type LlmRole = 'system' | 'user' | 'assistant';
@@ -43,19 +37,12 @@ export interface LlmMessage {
 export type LlmProvider = 'server-proxy' | 'direct-deepseek' | 'direct-qwen';
 
 export interface LlmCallOptions {
-  /** 覆盖默认 provider（默认 server-proxy） */
   provider?: LlmProvider;
-  /** 模型 ID；server-proxy 下被服务端忽略 */
   model?: string;
-  /** 温度 0~2，默认 0.7 */
   temperature?: number;
-  /** 最大输出 token，默认 1024 */
   maxTokens?: number;
-  /** 单次请求超时（ms） */
   timeoutMs?: number;
-  /** 重试次数，默认 1（与 HttpClient default=2 区分：LLM 重试代价更高） */
   retries?: number;
-  /** 关联书籍 / 章节，用于服务端配额统计 + 个性化 prompt */
   bookId?: string;
   chapterIndex?: number;
 }
@@ -63,32 +50,47 @@ export interface LlmCallOptions {
 export interface LlmStreamSink {
   onChunk: (delta: string) => void;
   onDone?: (full: string) => void;
-  onError?: (err: Error) => void;
+  onError?: (err: LlmError) => void;
 }
 
+/** Normalized error emitted by LlmAdapter on every failure path. */
+export interface LlmError {
+  code: string;
+  message: string;
+  /** Whether caller may safely retry after a short delay. */
+  retryable: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
 interface ServerChatResponse {
-  /** 服务端返回的完整文本 */
   text: string;
-  /** 用量统计（可选） */
   promptTokens?: number;
   completionTokens?: number;
 }
 
 interface ServerEmbeddingResponse {
   embedding: number[];
-  /** 维度（如 1536 / 1024） */
   dim: number;
 }
 
-// 直连 provider 的最小配置（Settings 注入；缺失时拒绝直连）
 interface DirectProviderConfig {
   baseUrl: string;
   apiKey: string;
   defaultModel: string;
 }
 
+interface LlmAdapterConfig {
+  provider?: LlmProvider;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+}
+
 // ---------------------------------------------------------------------------
-// 默认参数
+// Defaults
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TEMPERATURE = 0.7;
@@ -97,17 +99,26 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_RETRIES = 1;
 
 // ---------------------------------------------------------------------------
-// LlmAdapter 主类
+// LlmAdapter
 // ---------------------------------------------------------------------------
 
 export class LlmAdapter {
-  /** 当前进程默认 provider；可由 Settings 在启动时调用 setDefaultProvider 改写 */
   private static defaultProvider: LlmProvider = 'server-proxy';
-
-  /** direct-* 配置（仅 POC；正式环境留空 → 自动 fallback 到 server-proxy） */
   private static directConfigs: Map<LlmProvider, DirectProviderConfig> = new Map();
 
-  // ─── 配置 ───────────────────────────────────────────────────────────────
+  // ─── Singleton configure ────────────────────────────────────────────────
+
+  /** One-call bootstrap; safe to call multiple times (merges config). */
+  static configure(cfg: LlmAdapterConfig): void {
+    if (cfg.provider) LlmAdapter.defaultProvider = cfg.provider;
+    if (cfg.provider && cfg.provider !== 'server-proxy' && cfg.apiKey && cfg.baseUrl) {
+      LlmAdapter.directConfigs.set(cfg.provider, {
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        defaultModel: cfg.model ?? 'default',
+      });
+    }
+  }
 
   static setDefaultProvider(p: LlmProvider): void {
     LlmAdapter.defaultProvider = p;
@@ -118,9 +129,91 @@ export class LlmAdapter {
     LlmAdapter.directConfigs.set(p, cfg);
   }
 
-  // ─── 公共接口 ───────────────────────────────────────────────────────────
+  // ─── Primary streaming API (AsyncIterableIterator) ──────────────────────
 
-  /** 单次同步调用，返回完整文本。 */
+  /**
+   * Primary streaming interface. Returns an async iterator of text deltas
+   * and an abort() function. Caller:
+   *   const { iterator, abort } = LlmAdapter.stream(prompt);
+   *   for await (const chunk of iterator) { ... }
+   */
+  static stream(
+    prompt: string,
+    opts: LlmCallOptions = {},
+  ): { iterator: AsyncIterableIterator<string>; abort: () => void } {
+    const messages: LlmMessage[] = [{ role: 'user', content: prompt }];
+
+    let abortFn: () => void = () => {};
+    let resolveNext: ((value: IteratorResult<string>) => void) | null = null;
+    const pending: string[] = [];
+    let done = false;
+    let error: LlmError | null = null;
+
+    const push = (chunk: string): void => {
+      if (resolveNext) {
+        const res = resolveNext;
+        resolveNext = null;
+        res({ value: chunk, done: false });
+      } else {
+        pending.push(chunk);
+      }
+    };
+
+    const finish = (err?: LlmError): void => {
+      done = true;
+      error = err ?? null;
+      if (resolveNext) {
+        const res = resolveNext;
+        resolveNext = null;
+        if (err) {
+          res({ value: undefined as unknown as string, done: true });
+        } else {
+          res({ value: undefined as unknown as string, done: true });
+        }
+      }
+    };
+
+    const sink: LlmStreamSink = {
+      onChunk: (delta: string) => push(delta),
+      onDone: (_full: string) => finish(),
+      onError: (e: LlmError) => finish(e),
+    };
+
+    abortFn = LlmAdapter.chatStream(messages, opts, sink);
+
+    const iterator: AsyncIterableIterator<string> = {
+      next(): Promise<IteratorResult<string>> {
+        if (pending.length > 0) {
+          return Promise.resolve({ value: pending.shift()!, done: false });
+        }
+        if (done) {
+          if (error) return Promise.reject(new Error(error.message));
+          return Promise.resolve({ value: undefined as unknown as string, done: true });
+        }
+        return new Promise<IteratorResult<string>>((resolve) => {
+          resolveNext = resolve;
+        });
+      },
+      return(): Promise<IteratorResult<string>> {
+        abortFn();
+        finish();
+        return Promise.resolve({ value: undefined as unknown as string, done: true });
+      },
+      [Symbol.asyncIterator](): AsyncIterableIterator<string> {
+        return this;
+      },
+    };
+
+    return { iterator, abort: abortFn };
+  }
+
+  /** Non-streaming convenience — single prompt → full response string. */
+  static complete(prompt: string, opts: LlmCallOptions = {}): Promise<string> {
+    return LlmAdapter.chat([{ role: 'user', content: prompt }], opts);
+  }
+
+  // ─── chat / chatStream ──────────────────────────────────────────────────
+
   static async chat(messages: LlmMessage[], opts: LlmCallOptions = {}): Promise<string> {
     const provider = opts.provider ?? LlmAdapter.defaultProvider;
     if (provider === 'server-proxy' || !LlmAdapter.directConfigs.has(provider)) {
@@ -129,28 +222,24 @@ export class LlmAdapter {
     return LlmAdapter.chatDirect(provider, messages, opts);
   }
 
-  /**
-   * 流式调用，返回 stop() 函数。完整文本通过 sink.onDone(full) 回调一次。
-   * direct-* 模式下未实现流式（OpenAI SSE 解析复杂），自动 fallback 到 chat() + 一次性 chunk。
-   */
   static chatStream(messages: LlmMessage[], opts: LlmCallOptions, sink: LlmStreamSink): () => void {
     const provider = opts.provider ?? LlmAdapter.defaultProvider;
     if (provider !== 'server-proxy') {
-      // 直连暂不支持真流；fallback：发起一次同步 chat，把结果当一个 chunk 推
       let aborted = false;
       LlmAdapter.chat(messages, opts).then((full) => {
         if (aborted) return;
         sink.onChunk(full);
         sink.onDone?.(full);
       }).catch((err: Error) => {
-        if (!aborted) sink.onError?.(err);
+        if (!aborted) sink.onError?.(LlmAdapter.normalizeError(err));
       });
       return () => { aborted = true; };
     }
     return LlmAdapter.chatStreamViaProxy(messages, opts, sink);
   }
 
-  /** 文本嵌入（W12+ 向量检索用）。仅 server-proxy 实现。 */
+  // ─── Embeddings ─────────────────────────────────────────────────────────
+
   static async embeddings(text: string, opts: LlmCallOptions = {}): Promise<number[]> {
     const reqOpts: RequestOptions = {
       timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -164,22 +253,18 @@ export class LlmAdapter {
     return resp.embedding;
   }
 
-  /** 当日配额状态（与 paywall 联动）。直接复用 AiApi.getQuotaStatus。 */
   static getQuota(): Promise<QuotaStatus> {
     return AiApi.getQuotaStatus();
   }
 
-  /**
-   * 粗略 token 计数估算：英文 4 chars ≈ 1 token，中文 1 char ≈ 1.2 token。
-   * 仅用于客户端裁剪 prompt（防止超长），服务端会重新精确计费。
-   */
+  // ─── Token estimation ───────────────────────────────────────────────────
+
   static estimateTokens(text: string): number {
     if (!text) return 0;
     let cjk = 0;
     let other = 0;
     for (let i = 0; i < text.length; i++) {
       const code = text.charCodeAt(i);
-      // CJK 基本区 + 扩展 A
       if ((code >= 0x4E00 && code <= 0x9FFF) || (code >= 0x3400 && code <= 0x4DBF)) {
         cjk += 1;
       } else {
@@ -189,7 +274,6 @@ export class LlmAdapter {
     return Math.ceil(cjk * 1.2 + other / 4);
   }
 
-  /** 估算多条 message 总 token（含 role overhead 4 token / msg）。 */
   static estimateMessagesTokens(messages: LlmMessage[]): number {
     let sum = 0;
     for (const m of messages) {
@@ -198,7 +282,21 @@ export class LlmAdapter {
     return sum;
   }
 
-  // ─── server-proxy 实现 ─────────────────────────────────────────────────
+  // ─── Error normalization ─────────────────────────────────────────────────
+
+  static normalizeError(err: unknown): LlmError {
+    if (err instanceof ApiError) {
+      const retryable = err.statusCode === 0 || err.statusCode >= 500;
+      return { code: `api_${err.statusCode}`, message: err.message, retryable };
+    }
+    if (err instanceof Error) {
+      const retryable = err.message.includes('timeout') || err.message.includes('network');
+      return { code: 'network_error', message: err.message, retryable };
+    }
+    return { code: 'unknown', message: String(err), retryable: false };
+  }
+
+  // ─── server-proxy impl ──────────────────────────────────────────────────
 
   private static async chatViaProxy(messages: LlmMessage[], opts: LlmCallOptions): Promise<string> {
     const reqOpts: RequestOptions = {
@@ -213,8 +311,18 @@ export class LlmAdapter {
       bookId: opts.bookId,
       chapterIndex: opts.chapterIndex,
     };
-    const resp = await HttpClient.post<ServerChatResponse>('/api/v1/ai/chat', body, reqOpts);
-    return resp.text;
+    try {
+      const resp = await HttpClient.post<ServerChatResponse>('/api/v1/ai/chat', body, reqOpts);
+      LlmAdapter.trackTokenUsage(
+        opts.provider ?? 'server-proxy',
+        opts.model ?? 'default',
+        resp.promptTokens,
+        resp.completionTokens,
+      );
+      return resp.text;
+    } catch (err) {
+      throw LlmAdapter.normalizeError(err);
+    }
   }
 
   private static chatStreamViaProxy(
@@ -234,9 +342,15 @@ export class LlmAdapter {
     return SseClient.stream('/api/v1/ai/chat/stream', body, {
       onMessage: (raw: string) => {
         try {
-          const parsed = JSON.parse(raw) as { delta?: string; done?: boolean; error?: string };
+          const parsed = JSON.parse(raw) as {
+            delta?: string;
+            done?: boolean;
+            error?: string;
+            promptTokens?: number;
+            completionTokens?: number;
+          };
           if (parsed.error) {
-            sink.onError?.(new Error(parsed.error));
+            sink.onError?.({ code: 'server_error', message: parsed.error, retryable: false });
             return;
           }
           if (parsed.delta) {
@@ -244,6 +358,12 @@ export class LlmAdapter {
             sink.onChunk(parsed.delta);
           }
           if (parsed.done) {
+            LlmAdapter.trackTokenUsage(
+              opts.provider ?? 'server-proxy',
+              opts.model ?? 'default',
+              parsed.promptTokens,
+              parsed.completionTokens,
+            );
             sink.onDone?.(full);
           }
         } catch (_e) {
@@ -252,11 +372,11 @@ export class LlmAdapter {
         }
       },
       onDone: () => sink.onDone?.(full),
-      onError: (err: Error) => sink.onError?.(err),
+      onError: (err: Error) => sink.onError?.(LlmAdapter.normalizeError(err)),
     });
   }
 
-  // ─── direct-* 实现（OpenAI 兼容，POC） ─────────────────────────────────
+  // ─── direct-* impl (POC, OpenAI-compatible) ──────────────────────────────
 
   private static async chatDirect(
     provider: LlmProvider,
@@ -265,7 +385,7 @@ export class LlmAdapter {
   ): Promise<string> {
     const cfg = LlmAdapter.directConfigs.get(provider);
     if (!cfg) {
-      throw new ApiError(-1, `direct provider ${provider} not configured`, 0);
+      throw { code: 'misconfigured', message: `direct provider ${provider} not configured`, retryable: false } as LlmError;
     }
     const httpReq = http.createHttp();
     try {
@@ -274,7 +394,7 @@ export class LlmAdapter {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${cfg.apiKey}`,
       };
-      const body = {
+      const bodyObj = {
         model: opts.model ?? cfg.defaultModel,
         messages,
         temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
@@ -285,7 +405,7 @@ export class LlmAdapter {
       const resp = await httpReq.request(url, {
         method: http.RequestMethod.POST,
         header: headers,
-        extraData: JSON.stringify(body),
+        extraData: JSON.stringify(bodyObj),
         connectTimeout: timeoutMs,
         readTimeout: timeoutMs,
       });
@@ -293,18 +413,56 @@ export class LlmAdapter {
         ? resp.result
         : new TextDecoder('utf-8').decode(resp.result as ArrayBuffer);
       if (resp.responseCode < 200 || resp.responseCode >= 300) {
-        throw new ApiError(resp.responseCode, `direct_http_${resp.responseCode}`, resp.responseCode, { body: text });
+        throw LlmAdapter.normalizeError(new ApiError(resp.responseCode, `direct_http_${resp.responseCode}`, resp.responseCode, { body: text }));
       }
       const parsed = JSON.parse(text) as {
         choices?: { message?: { content?: string } }[];
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
       const content = parsed.choices?.[0]?.message?.content ?? '';
+      LlmAdapter.trackTokenUsage(
+        provider,
+        opts.model ?? cfg.defaultModel,
+        parsed.usage?.prompt_tokens,
+        parsed.usage?.completion_tokens,
+      );
       return content;
+    } catch (err) {
+      if ((err as LlmError).code) throw err;
+      throw LlmAdapter.normalizeError(err);
     } finally {
       httpReq.destroy();
     }
   }
+
+  // ─── Token usage tracking ─────────────────────────────────────────────
+
+  private static trackTokenUsage(
+    provider: string,
+    model: string,
+    inputTokens?: number,
+    outputTokens?: number,
+  ): void {
+    if (!inputTokens && !outputTokens) return;
+    const costUsd = LlmAdapter.estimateCostUsd(provider, model, inputTokens ?? 0, outputTokens ?? 0);
+    SensorsAnalytics.getInstance().track('llm.tokens.used', {
+      provider,
+      model,
+      input_tokens: inputTokens ?? 0,
+      output_tokens: outputTokens ?? 0,
+      cost_estimate_usd: costUsd,
+    });
+  }
+
+  private static estimateCostUsd(
+    _provider: string,
+    _model: string,
+    inputTokens: number,
+    outputTokens: number,
+  ): number {
+    // Rough estimate: $0.001 / 1K tokens (server-proxy — billed server-side; this is local telemetry only)
+    return Math.round(((inputTokens + outputTokens) / 1000) * 0.001 * 1e6) / 1e6;
+  }
 }
 
-// 兼容字面量导出（让其他模块用 import { QuotaStatus } from './LlmAdapter' 也能拿到）
 export { QuotaStatus };

@@ -1,95 +1,81 @@
 /**
- * TranslateService.ets — W8-C4 翻译服务抽象
+ * TranslateService.ets — W4 翻译服务（含 lookupWord / summarize / batch / stream）
  *
- * 定位：选段翻译 / 句子翻译 / 句子流式翻译，统一对外接口；底层 provider 可切换。
+ * 层级：L2 (features/ai-tools/service/) — 禁止导入 @ohos.arkui.*
  *
- * Provider：
- *   - 'server'  默认。调后端 /api/v1/ai/translate/sentence (+ /stream)
- *               走统一 HttpClient / SseClient + 服务端配额。
- *   - 'baidu'   Phase 4 接入 百度翻译 直连（appid + secretKey + 签名）
- *   - 'youdao'  Phase 4 接入 有道翻译 直连
- * 当前所有非 server provider 都抛 NOT_IMPLEMENTED 并 fall back 到 server。
- *
- * 内置 LRU(50) 缓存，避免重复段落（设置／导航返回）触发重复翻译；
- * 缓存 key = `${provider}:${from}->${to}:${text}`。
+ * Fallback chain:
+ *   1. TranslationCacheStrategy (memory LRU + 文件 7d TTL)
+ *   2. AiApi.translateSentenceStream (SSE)
+ *   3. 预翻译端点 /books/{bookId}/chapters/{chapterId}/translations/{locale}/paragraphs/{idx}
+ *   4. throw TranslationUnavailableError
  */
 
+import { AiApi, TranslatePayload } from '../../../api/ai/AiApi';
 import { HttpClient } from '../../../api/client/HttpClient';
-import { SseClient } from '../../../api/client/SseClient';
 import { TranslationCacheStrategy } from '../../../core/cache/strategies/TranslationCacheStrategy';
 
-// ---------- 公共类型 ----------
+// ---------------------------------------------------------------------------
+// 公共类型
+// ---------------------------------------------------------------------------
 
-export type TranslateProvider = 'server' | 'baidu' | 'youdao';
-
-export interface TranslateOptions {
-  /** 上下文（句子前 / 后），server provider 用作 prompt 提示 */
-  context?: string;
-  /** 是否人类风格译文（更自然，server 才支持） */
-  natural?: boolean;
+export interface TranslateOpts {
+  sourceLang: 'en' | 'zh' | 'auto';
+  targetLang: 'en' | 'zh';
+  bookId?: string;
+  chapterId?: string;
+  paragraphIdx?: number;
 }
 
-export interface TranslateResult {
-  translated: string;
-  sourceLang: string;
-  targetLang: string;
-  provider: TranslateProvider;
-  /** 来自 LRU 缓存命中标记 */
-  fromCache?: boolean;
+export interface WordExplanation {
+  word: string;
+  definition: string;
+  partOfSpeech: string;
+  examples: string[];
+  wordFamily: string[];
 }
 
-export interface TranslateStreamHandlers {
-  onChunk: (delta: string) => void;
-  onDone?: (full: string) => void;
-  onError?: (err: Error) => void;
+export type TranslationErrorCode = 'NETWORK' | 'QUOTA' | 'UNSUPPORTED_LANG';
+
+export class TranslationUnavailableError extends Error {
+  readonly code: TranslationErrorCode;
+  constructor(code: TranslationErrorCode, message?: string) {
+    super(message ?? code);
+    this.code = code;
+    this.name = 'TranslationUnavailableError';
+  }
 }
 
-export interface TranslateQuota {
-  used: number;
-  limit: number;
-  remaining: number;
-}
+// ---------------------------------------------------------------------------
+// 内部 in-memory LRU (cap 500)
+// ---------------------------------------------------------------------------
 
-// ---------- 后端响应类型 ----------
-
-interface ServerTranslateResp {
-  translated: string;
-}
-
-interface ServerQuotaResp {
-  used: number;
-  limit: number;
-}
-
-// ---------- LRU 缓存（50 条） ----------
-
-class LruCache {
+class LruMap<V> {
   private capacity: number;
-  private map: Map<string, TranslateResult>;
+  private map: Map<string, V> = new Map();
 
   constructor(capacity: number) {
     this.capacity = capacity;
-    this.map = new Map<string, TranslateResult>();
   }
 
-  get(key: string): TranslateResult | undefined {
+  get(key: string): V | undefined {
     const v = this.map.get(key);
     if (v === undefined) return undefined;
-    // 触发一次 reinsert 以维持 LRU 顺序
     this.map.delete(key);
     this.map.set(key, v);
     return v;
   }
 
-  set(key: string, value: TranslateResult): void {
-    if (this.map.has(key)) {
-      this.map.delete(key);
-    } else if (this.map.size >= this.capacity) {
-      // 删最旧
-      const oldestKey: string | undefined = this.map.keys().next().value;
-      if (oldestKey !== undefined) this.map.delete(oldestKey);
+  set(key: string, value: V): void {
+    if (this.map.has(key)) this.map.delete(key);
+    else if (this.map.size >= this.capacity) {
+      const oldest = this.map.keys().next().value as string | undefined;
+      if (oldest !== undefined) this.map.delete(oldest);
     }
     this.map.set(key, value);
+  }
+
+  delete(key: string): void {
+    this.map.delete(key);
   }
 
   clear(): void {
@@ -97,221 +83,300 @@ class LruCache {
   }
 }
 
-// ---------- 主服务 ----------
+// ---------------------------------------------------------------------------
+// TranslateService
+// ---------------------------------------------------------------------------
+
+const CACHE_TTL_7D = 7 * 24 * 60 * 60 * 1000;
+const BATCH_CONCURRENCY = 3;
 
 export class TranslateService {
-  private static instance: TranslateService | null = null;
-  private provider: TranslateProvider = 'server';
-  private cache: LruCache = new LruCache(50);
+  private static _instance: TranslateService | null = null;
 
-  static getInstance(): TranslateService {
-    if (!TranslateService.instance) {
-      TranslateService.instance = new TranslateService();
+  private memCache: LruMap<string> = new LruMap(500);
+
+  static get shared(): TranslateService {
+    if (!TranslateService._instance) {
+      TranslateService._instance = new TranslateService();
     }
-    return TranslateService.instance;
+    return TranslateService._instance;
   }
 
-  /** 切换 provider；非 server 暂未实装会自动 fallback。 */
-  setProvider(provider: TranslateProvider): void {
-    this.provider = provider;
-  }
+  // ---------------------------------------------------------------------------
+  // translateSentence
+  // ---------------------------------------------------------------------------
 
-  getProvider(): TranslateProvider {
-    return this.provider;
-  }
+  async translateSentence(sentence: string, opts: TranslateOpts): Promise<string> {
+    const trimmed = sentence.trim();
+    if (!trimmed) return '';
 
-  /** 同步翻译。命中缓存直接返回，否则走后端。 */
-  async translate(
-    text: string,
-    sourceLang: string,
-    targetLang: string,
-    opts?: TranslateOptions,
-  ): Promise<TranslateResult> {
-    const trimmed = (text ?? '').trim();
-    if (!trimmed) {
-      return {
-        translated: '',
-        sourceLang,
-        targetLang,
-        provider: this.provider,
-      };
-    }
-    const key = this.cacheKey(this.provider, sourceLang, targetLang, trimmed);
-    const cached = this.cache.get(key);
-    if (cached) {
-      return {
-        translated: cached.translated,
-        sourceLang: cached.sourceLang,
-        targetLang: cached.targetLang,
-        provider: cached.provider,
-        fromCache: true,
-      };
+    const cacheKey = this.buildKey(trimmed, opts.sourceLang, opts.targetLang);
+
+    // 1. Memory LRU
+    const memHit = this.memCache.get(cacheKey);
+    if (memHit !== undefined) return memHit;
+
+    // 2. Persistent cache
+    const persHit = await TranslationCacheStrategy.get('server', opts.sourceLang, opts.targetLang, trimmed);
+    if (persHit) {
+      this.memCache.set(cacheKey, persHit.translated);
+      return persHit.translated;
     }
 
-    // W10-C4：内存 LRU miss 时再查文件级缓存（30 天 TTL）
-    const persistent = await TranslationCacheStrategy.get(
-      this.provider, sourceLang, targetLang, trimmed,
-    );
-    if (persistent) {
-      const hit: TranslateResult = {
-        translated: persistent.translated,
-        sourceLang,
-        targetLang,
-        provider: this.provider,
-        fromCache: true,
-      };
-      // 同时回写内存 LRU，避免下次又走文件
-      this.cache.set(key, hit);
-      return hit;
-    }
-
-    // 非 server provider 暂未实装 → fallback
-    if (this.provider !== 'server') {
-      console.warn(`[TranslateService] provider ${this.provider} not implemented, fallback to server`);
-    }
-    const result = await this.translateViaServer(trimmed, sourceLang, targetLang, opts);
-    this.cache.set(key, result);
-    // 静默回写文件级缓存
-    TranslationCacheStrategy.put(
-      this.provider, sourceLang, targetLang, trimmed, result.translated,
-    ).catch(() => {});
-    return result;
-  }
-
-  /**
-   * 流式翻译（SSE）。返回 stop() 用于中止；不写入缓存（流式数据需要在 onDone 主动 set）。
-   */
-  translateStream(
-    text: string,
-    sourceLang: string,
-    targetLang: string,
-    handlers: TranslateStreamHandlers,
-  ): () => void {
-    const trimmed = (text ?? '').trim();
-    if (!trimmed) {
-      handlers.onDone?.('');
-      return () => {};
-    }
-    // 命中缓存：直接 fire onDone
-    const key = this.cacheKey(this.provider, sourceLang, targetLang, trimmed);
-    const cached = this.cache.get(key);
-    if (cached) {
-      handlers.onChunk(cached.translated);
-      handlers.onDone?.(cached.translated);
-      return () => {};
-    }
-    if (this.provider !== 'server') {
-      console.warn(`[TranslateService] stream provider ${this.provider} not implemented, fallback to server`);
-    }
-    let buffered = '';
-    const stop = SseClient.stream('/ai/translate/sentence/stream', {
-      text: trimmed,
-      from: sourceLang,
-      to: targetLang,
-      context: opts_context(handlers),
-    } as object, {
-      onMessage: (raw: string) => {
-        try {
-          const parsed = JSON.parse(raw) as { delta?: string; done?: boolean; error?: string };
-          if (parsed.error) {
-            handlers.onError?.(new Error(parsed.error));
-            return;
-          }
-          if (parsed.delta) {
-            buffered += parsed.delta;
-            handlers.onChunk(parsed.delta);
-          }
-          if (parsed.done) {
-            this.cache.set(key, {
-              translated: buffered,
-              sourceLang,
-              targetLang,
-              provider: 'server',
-            });
-            // W10-C4：流式完成同时写入持久层
-            TranslationCacheStrategy.put(
-              'server', sourceLang, targetLang, trimmed, buffered,
-            ).catch(() => {});
-            handlers.onDone?.(buffered);
-          }
-        } catch (_e) {
-          // 非 JSON 当 raw 透传
-          buffered += raw;
-          handlers.onChunk(raw);
-        }
-      },
-      onDone: () => {
-        if (buffered.length > 0) {
-          this.cache.set(key, {
-            translated: buffered,
-            sourceLang,
-            targetLang,
-            provider: 'server',
-          });
-          TranslationCacheStrategy.put(
-            'server', sourceLang, targetLang, trimmed, buffered,
-          ).catch(() => {});
-        }
-        handlers.onDone?.(buffered);
-      },
-      onError: (err) => handlers.onError?.(err),
-    });
-    return stop;
-  }
-
-  /** 查询服务端 AI 翻译配额（kind=translate）。 */
-  async getQuota(): Promise<TranslateQuota> {
+    // 3. LlmAdapter via AiApi stream — collect to string
     try {
-      const resp = await HttpClient.get<ServerQuotaResp>('/ai/quota', { kind: 'translate' });
-      const used = resp?.used ?? 0;
-      const limit = resp?.limit ?? 0;
-      return { used, limit, remaining: Math.max(0, limit - used) };
-    } catch (_e) {
-      return { used: 0, limit: 0, remaining: 0 };
+      const result = await this.collectStream(trimmed, opts);
+      this.memCache.set(cacheKey, result);
+      TranslationCacheStrategy.put('server', opts.sourceLang, opts.targetLang, trimmed, result).catch(() => {});
+      return result;
+    } catch (e1) {
+      // 4. Pre-translation endpoint fallback
+      if (opts.bookId && opts.chapterId && opts.paragraphIdx !== undefined) {
+        try {
+          const locale = opts.targetLang === 'zh' ? 'zh-CN' : 'en';
+          const resp = await HttpClient.get<{ text: string }>(
+            `/books/${opts.bookId}/chapters/${opts.chapterId}/translations/${locale}/paragraphs/${opts.paragraphIdx}`,
+          );
+          if (resp?.text) return resp.text;
+        } catch (_e2) {}
+      }
+      // 5. Classify and throw
+      throw this.classify(e1 as Error);
     }
   }
 
-  /** 清空 LRU（设置改语言对、provider 切换、登出时调用）。 */
-  clearCache(): void {
-    this.cache.clear();
-  }
+  // ---------------------------------------------------------------------------
+  // translateSentenceStream
+  // ---------------------------------------------------------------------------
 
-  // ---------- 内部 ----------
+  async *translateSentenceStream(sentence: string, opts: TranslateOpts): AsyncGenerator<string> {
+    const trimmed = sentence.trim();
+    if (!trimmed) return;
 
-  private async translateViaServer(
-    text: string,
-    sourceLang: string,
-    targetLang: string,
-    _opts?: TranslateOptions,
-  ): Promise<TranslateResult> {
-    const body: Record<string, string> = {
-      text,
-      from: sourceLang,
-      to: targetLang,
+    const cacheKey = this.buildKey(trimmed, opts.sourceLang, opts.targetLang);
+
+    // Memory hit → yield entire string once
+    const memHit = this.memCache.get(cacheKey);
+    if (memHit !== undefined) {
+      yield memHit;
+      return;
+    }
+
+    // Persistent hit → yield once
+    const persHit = await TranslationCacheStrategy.get('server', opts.sourceLang, opts.targetLang, trimmed);
+    if (persHit) {
+      this.memCache.set(cacheKey, persHit.translated);
+      yield persHit.translated;
+      return;
+    }
+
+    // SSE stream via AiApi
+    let full = '';
+    const chunks: string[] = [];
+    let done = false;
+    let error: Error | null = null;
+
+    const payload: TranslatePayload = {
+      text: trimmed,
+      from: opts.sourceLang === 'auto' ? 'en' : opts.sourceLang,
+      to: opts.targetLang,
+      bookId: opts.bookId,
     };
-    // W11 Critical 修复：默认 30s 超时（HttpClient 自身可能不带；用 Promise.race 保底）
-    // 防止后端卡住时客户端无限等待
-    const TIMEOUT_MS = 30000;
-    const resp = await Promise.race<ServerTranslateResp>([
-      HttpClient.post<ServerTranslateResp>('/ai/translate/sentence', body),
-      new Promise<ServerTranslateResp>((_resolve, reject) => {
-        setTimeout(() => reject(new Error('translate_timeout')), TIMEOUT_MS);
-      }),
-    ]);
-    return {
-      translated: resp?.translated ?? '',
-      sourceLang,
-      targetLang,
-      provider: 'server',
+
+    const stop = AiApi.translateSentenceStream(payload, {
+      onChunk: (delta: string) => {
+        chunks.push(delta);
+        full += delta;
+      },
+      onDone: () => { done = true; },
+      onError: (e: Error) => { error = e; done = true; },
+    });
+
+    // Drain chunks as they arrive using a polling async loop
+    let idx = 0;
+    const POLL_INTERVAL = 16;
+    while (!done || idx < chunks.length) {
+      while (idx < chunks.length) {
+        yield chunks[idx];
+        idx++;
+      }
+      if (!done) {
+        await new Promise<void>((r) => setTimeout(() => r(), POLL_INTERVAL));
+      }
+    }
+
+    if (error) {
+      stop();
+      throw this.classify(error);
+    }
+
+    // Cache final
+    if (full) {
+      this.memCache.set(cacheKey, full);
+      TranslationCacheStrategy.put('server', opts.sourceLang, opts.targetLang, trimmed, full).catch(() => {});
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // translateBatch
+  // ---------------------------------------------------------------------------
+
+  async translateBatch(sentences: string[], opts: TranslateOpts): Promise<string[]> {
+    const results: string[] = new Array(sentences.length).fill('');
+    let cursor = 0;
+
+    const worker = async (): Promise<void> => {
+      while (cursor < sentences.length) {
+        const idx = cursor++;
+        try {
+          results[idx] = await this.translateSentence(sentences[idx], opts);
+        } catch (_e) {
+          results[idx] = '';
+        }
+      }
     };
+
+    const workers: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(BATCH_CONCURRENCY, sentences.length); i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    return results;
   }
 
-  private cacheKey(provider: TranslateProvider, from: string, to: string, text: string): string {
-    return `${provider}:${from}->${to}:${text}`;
-  }
-}
+  // ---------------------------------------------------------------------------
+  // lookupWord — calls /ai/explain/word for structured JSON
+  // ---------------------------------------------------------------------------
 
-// 兼容 stream 调用时透传 context 字段（防止 SseClient body 不接受 undefined 字段）
-function opts_context(_h: TranslateStreamHandlers): string {
-  return '';
+  async lookupWord(word: string, contextSentence: string, targetLang: 'en' | 'zh'): Promise<WordExplanation> {
+    const trimmed = word.trim();
+    if (!trimmed) {
+      return { word: '', definition: '', partOfSpeech: '', examples: [], wordFamily: [] };
+    }
+
+    try {
+      const resp = await HttpClient.post<{
+        word?: string;
+        definition?: string;
+        partOfSpeech?: string;
+        examples?: string[];
+        wordFamily?: string[];
+        raw?: string;
+      }>('/ai/explain', {
+        word: trimmed,
+        context: contextSentence,
+        locale: targetLang === 'zh' ? 'zh-CN' : 'en',
+      });
+
+      return {
+        word: resp.word ?? trimmed,
+        definition: resp.definition ?? resp.raw ?? '',
+        partOfSpeech: resp.partOfSpeech ?? '',
+        examples: resp.examples ?? [],
+        wordFamily: resp.wordFamily ?? [],
+      };
+    } catch (e) {
+      throw this.classify(e as Error);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // summarize — chapter-level summary
+  // ---------------------------------------------------------------------------
+
+  async summarize(chapterText: string, targetLang: 'en' | 'zh'): Promise<string> {
+    const trimmed = chapterText.trim();
+    if (!trimmed) return '';
+
+    const cacheKey = this.buildKey(`summary:${trimmed.slice(0, 120)}`, 'auto', targetLang);
+    const memHit = this.memCache.get(cacheKey);
+    if (memHit !== undefined) return memHit;
+
+    try {
+      const payload: TranslatePayload = {
+        text: trimmed,
+        from: 'auto',
+        to: targetLang,
+        bookId: undefined,
+      };
+      // Reuse translate endpoint with a summarize marker; server handles by intent
+      const resp = await HttpClient.post<{ translated: string }>('/ai/summarize', {
+        text: trimmed,
+        locale: targetLang === 'zh' ? 'zh-CN' : 'en',
+      });
+      const result = resp.translated ?? '';
+      if (result) this.memCache.set(cacheKey, result);
+      return result;
+    } catch (e) {
+      // Fallback: use translate stream on truncated text
+      const short = trimmed.slice(0, 2000);
+      try {
+        return await this.translateSentence(short, { sourceLang: 'auto', targetLang });
+      } catch (_e2) {
+        throw this.classify(e as Error);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cache management
+  // ---------------------------------------------------------------------------
+
+  clearMemoryCache(): void {
+    this.memCache.clear();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internals
+  // ---------------------------------------------------------------------------
+
+  private async collectStream(text: string, opts: TranslateOpts): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      let buf = '';
+      let settled = false;
+      const payload: TranslatePayload = {
+        text,
+        from: opts.sourceLang === 'auto' ? 'en' : opts.sourceLang,
+        to: opts.targetLang,
+        bookId: opts.bookId,
+      };
+      const stop = AiApi.translateSentenceStream(payload, {
+        onChunk: (delta: string) => { buf += delta; },
+        onDone: () => {
+          if (settled) return;
+          settled = true;
+          resolve(buf);
+        },
+        onError: (e: Error) => {
+          if (settled) return;
+          settled = true;
+          try { stop(); } catch (_e) {}
+          reject(e);
+        },
+      });
+      // Safety timeout 30s
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { stop(); } catch (_e) {}
+        if (buf.length > 0) resolve(buf);
+        else reject(new Error('translate_timeout'));
+      }, 30000);
+    });
+  }
+
+  private buildKey(text: string, from: string, to: string): string {
+    return `${from}>${to}:${text}`;
+  }
+
+  private classify(e: Error): TranslationUnavailableError {
+    const msg = e.message ?? '';
+    if (msg.includes('quota') || msg.includes('429')) {
+      return new TranslationUnavailableError('QUOTA', msg);
+    }
+    if (msg.includes('unsupported') || msg.includes('lang')) {
+      return new TranslationUnavailableError('UNSUPPORTED_LANG', msg);
+    }
+    return new TranslationUnavailableError('NETWORK', msg);
+  }
 }

@@ -84,6 +84,17 @@ export interface DeleteBookmarkPayload {
 
 export type DeleteBookmarkIntent = Intent<'reader.deleteBookmark', DeleteBookmarkPayload>;
 
+// ── W4 translate intent (module-local) ──────────────────────────────
+
+export interface TranslateSelectionPayload {
+  readonly range: TextRange;
+  readonly text: string;
+  readonly sourceLang: 'en' | 'zh' | 'auto';
+  readonly targetLang: 'en' | 'zh';
+}
+
+export type TranslateSelectionIntent = Intent<'reader.translateSelection', TranslateSelectionPayload>;
+
 export type ReaderW3Intent =
   | SaveHighlightIntent
   | EditHighlightIntent
@@ -106,7 +117,8 @@ export type ReaderIntent =
   | DeleteHighlightIntent
   | SaveNoteIntent
   | SaveBookmarkIntent
-  | DeleteBookmarkIntent;
+  | DeleteBookmarkIntent
+  | TranslateSelectionIntent;
 
 export type ReaderIntentKind = ReaderIntent['kind'];
 
@@ -125,6 +137,7 @@ export const READER_INTENT_KINDS: ReaderIntentKind[] = [
   'reader.saveNote',
   'reader.saveBookmark',
   'reader.deleteBookmark',
+  'reader.translateSelection',
 ];
 
 function makeKey(kind: string, extra: string): string {
@@ -266,6 +279,16 @@ export function makeDeleteBookmarkIntent(payload: DeleteBookmarkPayload): Delete
     kind: 'reader.deleteBookmark',
     payload,
     idempotencyKey: makeKey('reader.deleteBookmark', payload.bookmarkId),
+    source: 'phone' as never,
+    tsMs: Date.now(),
+  };
+}
+
+export function makeTranslateSelectionIntent(payload: TranslateSelectionPayload): TranslateSelectionIntent {
+  return {
+    kind: 'reader.translateSelection',
+    payload,
+    idempotencyKey: makeKey('reader.translateSelection', `${payload.range.chapterId}:${payload.range.startCharOffset}`),
     source: 'phone' as never,
     tsMs: Date.now(),
   };

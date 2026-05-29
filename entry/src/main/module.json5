@@ -394,7 +394,11 @@
         "description": "$string:ext_tts_desc",
         "icon": "$media:app_icon",
         "type": "service",
-        "exported": false
+        "exported": false,
+        // W4：后台 TTS + 音频播放保活
+        "backgroundModes": [
+          "audioPlayback"
+        ]
       },
       {
         "name": "SyncServiceExtAbility",
@@ -409,6 +413,17 @@
     "requestPermissions": [
       {
         "name": "ohos.permission.INTERNET"
+      },
+      // W4：TtsServiceExtAbility 后台音频保活
+      {
+        "name": "ohos.permission.KEEP_BACKGROUND_RUNNING",
+        "reason": "$string:permission_background_audio_reason",
+        "usedScene": {
+          "abilities": [
+            "TtsServiceExtAbility"
+          ],
+          "when": "always"
+        }
       },
       // W11-C4：碰一碰（NFC NDEF 读取）— 元服务用
       {

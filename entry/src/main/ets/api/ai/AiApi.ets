@@ -4,12 +4,20 @@ import { SseClient } from '../../api/client/SseClient';
 /**
  * AiApi — server-cn AI 端点全量封装
  *
- * 与 server-cn /api/v1/ai/* 对齐：
- *   - explain/word              划词解释（同步 + SSE）
- *   - translate/sentence        整句翻译（同步 + SSE）
- *   - content/qa                内容问答（SSE，conversationId 复用 → 多轮）
- *   - quota                     当前用户 AI 调用配额
- *   - conversations             会话列表 / 删除
+ * 架构决策：ALL AI calls go through the backend (/api/v1/ai/*).
+ * The backend holds LLM provider keys (DeepSeek / Qwen / Claude) and handles
+ * billing, rate-limiting, and abuse control. Clients NEVER call LLM providers
+ * directly in production. SseClient targets backend SSE endpoints only.
+ *
+ * Endpoints:
+ *   - /ai/explain/word(/stream)     划词解释（同步 + SSE）
+ *   - /ai/translate/sentence(/stream) 整句翻译（同步 + SSE）
+ *   - /ai/content/qa/stream         内容问答（SSE，conversationId 复用 → 多轮）
+ *   - /ai/summarize/stream          章节摘要（SSE）
+ *   - /ai/analyze-weakness          弱点分析（同步，返回 JSON）
+ *   - /ai/generate-question         出题（同步，返回 JSON）
+ *   - /ai/quota                     当前用户 AI 调用配额
+ *   - /ai/conversations             会话列表 / 删除
  *
  * SSE 格式：每条事件是 JSON `{delta?: string, done?: boolean, error?: string}`
  * 每个 stream 函数返回 `() => void` 用于中止连接（拷贝自 SseClient）
@@ -174,6 +182,36 @@ export class AiApi {
    */
   static contentQA(payload: ContentQAPayload, handlers: SseHandlers): () => void {
     return SseClient.stream('/ai/content/qa/stream', payload, AiApi.wrapJsonHandlers(handlers));
+  }
+
+  // ---- 章节摘要 ----------------------------------------------------------
+
+  /** 流式章节摘要。返回 stop() 函数中止流式连接。 */
+  static summarizeStream(
+    payload: { bookId: string; chapterIndex: number; targetLanguage?: 'zh-CN' | 'en' },
+    handlers: SseHandlers,
+  ): () => void {
+    return SseClient.stream('/ai/summarize/stream', payload, AiApi.wrapJsonHandlers(handlers));
+  }
+
+  // ---- 弱点分析 ----------------------------------------------------------
+
+  /** 同步弱点分析，返回 JSON 报告（服务端根据用户 SRS/阅读历史生成）。 */
+  static analyzeWeakness(payload: { userId?: string }): Promise<Record<string, unknown>> {
+    return HttpClient.post<Record<string, unknown>>('/ai/analyze-weakness', payload);
+  }
+
+  // ---- 出题 --------------------------------------------------------------
+
+  /** 同步出题，返回 JSON 题目（难度 + 题型由 payload 指定）。 */
+  static generateQuestion(payload: {
+    bookId: string;
+    chapterIndex: number;
+    difficulty: 'easy' | 'medium' | 'hard';
+    type: 'mcq' | 'fill' | 'short';
+    weaknessBias?: Record<string, number>;
+  }): Promise<Record<string, unknown>> {
+    return HttpClient.post<Record<string, unknown>>('/ai/generate-question', payload);
   }
 
   // ---- 配额 --------------------------------------------------------------

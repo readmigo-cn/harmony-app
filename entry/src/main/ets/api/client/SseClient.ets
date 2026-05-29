@@ -8,6 +8,8 @@ import { UserStore } from '../../store/UserStore';
  *   - 每条事件由两次 \n\n 分隔
  *   - data: 行的内容是负载（同一事件可能有多个 data: 行）
  *
+ * 重试策略：1 次初始 + 1 次 retry（仅网络错误 / 5xx，4xx 不重试）。
+ *
  * 用法：
  *   const stop = SseClient.stream(path, body, {
  *     onMessage: (data) => { ... },
@@ -24,71 +26,90 @@ export interface SseHandlers {
 
 export class SseClient {
   static stream(path: string, body: object, handlers: SseHandlers): () => void {
-    const url = SseClient.buildUrl(path);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream',
-      'Accept-Language': 'zh-CN',
-    };
-    const token = UserStore.getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const req = http.createHttp();
-    let buffer = '';
     let aborted = false;
-    const decoder = new TextDecoder('utf-8');
+    let currentReq: http.HttpRequest | null = null;
 
-    req.on('dataReceive', (chunk: ArrayBuffer) => {
+    const attempt = (retriesLeft: number): void => {
       if (aborted) return;
-      buffer += decoder.decode(chunk, { stream: true });
-      // SSE 事件用 \n\n 分隔
-      let idx = buffer.indexOf('\n\n');
-      while (idx >= 0) {
-        const event = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        SseClient.handleEvent(event, handlers);
-        idx = buffer.indexOf('\n\n');
-      }
-    });
 
-    req.on('dataEnd', () => {
-      if (aborted) return;
-      if (buffer.length > 0) {
-        SseClient.handleEvent(buffer, handlers);
-        buffer = '';
-      }
-      handlers.onDone?.();
-      req.destroy();
-    });
+      const url = SseClient.buildUrl(path);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'Accept-Language': 'zh-CN',
+      };
+      const token = UserStore.getToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    req.on('headersReceive', (_h: object) => {
-      // 仅占位，后续可读 status code
-    });
+      const req = http.createHttp();
+      currentReq = req;
+      let buffer = '';
+      const decoder = new TextDecoder('utf-8');
 
-    req.requestInStream(url, {
-      method: http.RequestMethod.POST,
-      header: headers,
-      extraData: JSON.stringify(body),
-      connectTimeout: 30_000,
-      readTimeout: 60_000,
-    }).then((statusCode: number) => {
-      if (statusCode < 200 || statusCode >= 300) {
-        handlers.onError?.(new Error(`http_${statusCode}`));
+      req.on('dataReceive', (chunk: ArrayBuffer) => {
+        if (aborted) return;
+        buffer += decoder.decode(chunk, { stream: true });
+        let idx = buffer.indexOf('\n\n');
+        while (idx >= 0) {
+          const event = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          SseClient.handleEvent(event, handlers);
+          idx = buffer.indexOf('\n\n');
+        }
+      });
+
+      req.on('dataEnd', () => {
+        if (aborted) return;
+        if (buffer.length > 0) {
+          SseClient.handleEvent(buffer, handlers);
+          buffer = '';
+        }
+        handlers.onDone?.();
         req.destroy();
-      }
-    }).catch((err: Error) => {
-      if (!aborted) handlers.onError?.(err);
-      req.destroy();
-    });
+      });
+
+      req.requestInStream(url, {
+        method: http.RequestMethod.POST,
+        header: headers,
+        extraData: JSON.stringify(body),
+        connectTimeout: 30_000,
+        readTimeout: 60_000,
+      }).then((statusCode: number) => {
+        if (aborted) return;
+        if (statusCode >= 400 && statusCode < 500) {
+          // 4xx: no retry
+          handlers.onError?.(new Error(`http_${statusCode}`));
+          req.destroy();
+        } else if (statusCode < 200 || statusCode >= 300) {
+          // 5xx: retry once
+          req.destroy();
+          if (retriesLeft > 0) {
+            attempt(retriesLeft - 1);
+          } else {
+            handlers.onError?.(new Error(`http_${statusCode}`));
+          }
+        }
+      }).catch((err: Error) => {
+        req.destroy();
+        if (aborted) return;
+        // Network error: retry once
+        if (retriesLeft > 0) {
+          attempt(retriesLeft - 1);
+        } else {
+          handlers.onError?.(err);
+        }
+      });
+    };
+
+    attempt(1);
 
     return () => {
       aborted = true;
-      req.destroy();
+      currentReq?.destroy();
     };
   }
 
   private static handleEvent(rawEvent: string, handlers: SseHandlers): void {
-    // 一个 event 可能包含多行；只关心 data: 开头的
     const lines = rawEvent.split('\n');
     const dataParts: string[] = [];
     for (const line of lines) {
