@@ -104,6 +104,10 @@ export class ReadingStore {
       }
     }
     AppStorage.SetOrCreate<LastSyncedMap>(StoreKeys.READING_LAST_SYNCED_AT, synced);
+
+    // P0-B.4: streak 回灌（StreakService 后续 init 时会重算覆盖）
+    const streak = await PreferencesManager.getNumber(StoreKeys.READING_STREAK_DAYS, 0);
+    AppStorage.SetOrCreate<number>(StoreKeys.READING_STREAK_DAYS, streak);
   }
 
   /**
@@ -234,6 +238,23 @@ export class ReadingStore {
     return all[bookId] ?? 0;
   }
 
+  // ─── P0-B.4 Streak ──────────────────────────────────────────
+
+  /** 由 StreakService.recompute() 调用；UI 通过 @StorageProp 监听 READING_STREAK_DAYS。 */
+  static setStreak(days: number): void {
+    AppStorage.SetOrCreate<number>(StoreKeys.READING_STREAK_DAYS, days);
+    PreferencesManager.setNumber(StoreKeys.READING_STREAK_DAYS, days);
+    PreferencesManager.setNumber(StoreKeys.READING_STREAK_UPDATED_AT, Date.now());
+  }
+
+  static getStreak(): number {
+    return AppStorage.Get<number>(StoreKeys.READING_STREAK_DAYS) ?? 0;
+  }
+
+  static getStreakUpdatedAt(): Promise<number> {
+    return PreferencesManager.getNumber(StoreKeys.READING_STREAK_UPDATED_AT, 0);
+  }
+
   static clear(): void {
     AppStorage.Delete(StoreKeys.READING_CURRENT_BOOK);
     AppStorage.Delete(StoreKeys.READING_CURRENT_SLUG);
@@ -251,8 +272,11 @@ export class ReadingStore {
     PreferencesManager.remove(StoreKeys.READING_RECENT_BOOKS);
     AppStorage.Delete(StoreKeys.READING_CHAPTER_PROGRESS);
     AppStorage.Delete(StoreKeys.READING_LAST_SYNCED_AT);
+    AppStorage.Delete(StoreKeys.READING_STREAK_DAYS);
     PreferencesManager.remove(StoreKeys.READING_CHAPTER_PROGRESS);
     PreferencesManager.remove(StoreKeys.READING_LAST_SYNCED_AT);
     PreferencesManager.remove(StoreKeys.READING_PROGRESS_QUEUE);
+    PreferencesManager.remove(StoreKeys.READING_STREAK_DAYS);
+    PreferencesManager.remove(StoreKeys.READING_STREAK_UPDATED_AT);
   }
 }

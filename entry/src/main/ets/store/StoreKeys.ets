@@ -47,6 +47,9 @@ export class StoreKeys {
   static readonly READING_CHAPTER_PROGRESS: string = 'reading_chapter_progress';
   static readonly READING_LAST_SYNCED_AT: string = 'reading_last_synced_at';
   static readonly READING_PROGRESS_QUEUE: string = 'reading_progress_queue';
+  // P0-B.4 streak（客户端算，server 不返回 streak 字段）
+  static readonly READING_STREAK_DAYS: string = 'reading_streak_days';
+  static readonly READING_STREAK_UPDATED_AT: string = 'reading_streak_updated_at';
 
   // app
   static readonly APP_FIRST_LAUNCH: string = 'app_first_launch';
