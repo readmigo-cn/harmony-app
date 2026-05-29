@@ -2,6 +2,7 @@ import dataPreferences from '@ohos.data.preferences';
 import common from '@ohos.app.ability.common';
 import cryptoFramework from '@ohos.security.cryptoFramework';
 import buffer from '@ohos.buffer';
+import { SecureKeystore } from './SecureKeystore';
 
 const STORE_NAME = 'readmigo_prefs';
 const SECURE_PREFIX = '__sec__:';
@@ -39,7 +40,16 @@ export class PreferencesManager {
 
   static async init(context: common.UIAbilityContext): Promise<void> {
     PreferencesManager.prefs = await dataPreferences.getPreferences(context, STORE_NAME);
-    await PreferencesManager.initCryptoKey(PreferencesManager.DEFAULT_KEY_HEX);
+    // 优先用 SecureKeystore 取 HUKS-derived / CSPRNG-generated 设备私有密钥；
+    // 失败时退回硬编码默认值（兼容老设备）。
+    let masterKey: string = PreferencesManager.DEFAULT_KEY_HEX;
+    try {
+      await SecureKeystore.init(context);
+      masterKey = await SecureKeystore.getOrCreateMasterKey();
+    } catch (e) {
+      console.warn(`PreferencesManager: SecureKeystore init failed, using DEFAULT_KEY_HEX: ${e}`);
+    }
+    await PreferencesManager.initCryptoKey(masterKey);
   }
 
   /** 业务侧若有更安全的 key（如来自 keystore / 用户 PIN），可主动注入。 */
@@ -278,9 +288,20 @@ export class PreferencesManager {
   }
 
   private static randomBytes(n: number): Uint8Array {
-    const bytes = new Uint8Array(n);
-    for (let i = 0; i < n; i++) bytes[i] = Math.floor(Math.random() * 256);
-    return bytes;
+    // 密码学安全 RNG：用 cryptoFramework CSPRNG 生成 IV / nonce。
+    // 旧实现 Math.random 不是 CSPRNG，IV 可预测，违反 AES-CBC 安全前提，已修复。
+    try {
+      const rand = cryptoFramework.createRandom();
+      const blob = rand.generateRandomSync(n);
+      const offset = blob.data.byteOffset ?? 0;
+      const len = blob.data.byteLength ?? n;
+      return new Uint8Array(blob.data.buffer, offset, len);
+    } catch (e) {
+      console.warn(`PreferencesManager.randomBytes: CSPRNG unavailable, falling back to Math.random: ${e}`);
+      const bytes = new Uint8Array(n);
+      for (let i = 0; i < n; i++) bytes[i] = Math.floor(Math.random() * 256);
+      return bytes;
+    }
   }
 }
 

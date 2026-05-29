@@ -1,9 +1,11 @@
 import http from '@ohos.net.http';
 import { ApiConfig } from './ApiConfig';
+import { ResponseCache } from './ResponseCache';
 import { UserStore } from '../../store/UserStore';
 import { RouterService } from '../../core/router/RouterService';
 import { RoutePath } from '../../core/router/RouteConstants';
 import { StoreKeys } from '../../store/StoreKeys';
+import { LocalizationManager } from '../../core/i18n/LocalizationManager';
 
 /**
  * HTTP client based on @ohos.net.http.
@@ -117,14 +119,38 @@ export class HttpClient {
       options: opts,
       headers: {
         'Content-Type': 'application/json',
-        'Accept-Language': 'zh-CN',
+        'Accept-Language': LocalizationManager.getAcceptLanguageHeader(),
         ...(opts.headers ?? {}),
       },
     };
     for (const i of HttpClient.interceptors) {
       await i(ctx);
     }
-    return HttpClient.execute<T>(path, ctx, opts.retries ?? 2);
+    const method = ctx.options.method ?? http.RequestMethod.GET;
+    const isGet = method === http.RequestMethod.GET;
+    const cacheKey = ResponseCache.keyFor(String(method), ctx.url);
+
+    // 缓存读：GET 命中且未过期直接返回；解析失败回退网络。
+    if (isGet) {
+      const hit = await ResponseCache.get(cacheKey);
+      if (hit) {
+        try {
+          return JSON.parse(hit.data) as T;
+        } catch (_e) {
+          // 缓存损坏，丢弃继续走网络
+        }
+      }
+    }
+
+    const result = await HttpClient.execute<T>(path, ctx, opts.retries ?? 2);
+
+    // 缓存写：GET 成功落盘；mutating 清同 URL 前缀的 GET 缓存。
+    if (isGet) {
+      await ResponseCache.put(cacheKey, result);
+    } else {
+      await ResponseCache.invalidate(ResponseCache.keyFor('GET', ctx.url));
+    }
+    return result;
   }
 
   /** 真正执行请求 + 重试 + 401 处理 */

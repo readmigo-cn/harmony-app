@@ -13,6 +13,7 @@ import { RouterService } from '../core/router/RouterService';
 import { PagePath } from '../core/router/RouteConstants';
 import { ThemeService } from '../core/theme/ThemeService';
 import { FontRegistry } from '../core/theme/FontRegistry';
+import { LocalizationManager } from '../core/i18n/LocalizationManager';
 import { ProgressSync } from '../features/multi-device/service/ProgressSync';
 // W14-C1：自适应布局 / 折叠屏感知。需要 windowStage，因此在 onWindowStageCreate 里初始化
 import { initBreakpoints, disposeBreakpoints } from '../core/theme/Breakpoints';
@@ -91,6 +92,11 @@ export default class EntryAbility extends UIAbility {
       await UserStore.init();
       await ReadingStore.init();
       await SettingsStore.init();
+    });
+
+    // P0-A: i18n 在 PreferencesManager 之后（拉取持久化语种偏好），UI 渲染前
+    optimizer.registerTask('i18n_init', TaskPriority.CRITICAL, async () => {
+      await LocalizationManager.init();
     });
 
     // 主题必须在 SettingsStore 之后，首帧渲染需要正确主题色

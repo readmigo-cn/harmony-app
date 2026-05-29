@@ -16,6 +16,22 @@ export class ApiConfig {
 
   static readonly timeoutMs: number = 15000;
 
+  /**
+   * HTTP 响应缓存配置。对齐 iOS URLCache（20MB 内存 / 100MB 磁盘 / 默认 5min TTL）。
+   * 默认关闭（enabled=false），逐端点灰度后再启用。
+   */
+  static readonly cache: {
+    enabled: boolean;
+    memBytes: number;
+    diskBytes: number;
+    defaultTtlMs: number;
+  } = {
+    enabled: false,
+    memBytes: 20 * 1024 * 1024,
+    diskBytes: 100 * 1024 * 1024,
+    defaultTtlMs: 5 * 60 * 1000,
+  };
+
   static get baseUrl(): string {
     return ApiConfig.baseUrls[ApiConfig.env];
   }
