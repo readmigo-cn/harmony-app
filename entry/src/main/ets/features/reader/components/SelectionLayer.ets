@@ -19,6 +19,9 @@
 import { AppColors } from '../../../core/theme/AppColors';
 import { AppFontSize, AppFontWeight } from '../../../core/theme/AppTypography';
 import { AppSpacing, AppRadius } from '../../../core/theme/AppSpacing';
+import { IntentBus } from '../../../core/intent/IntentBus';
+import { makeSaveHighlightIntent, makeLookupWordIntent } from '../intent/ReaderIntents';
+import type { HighlightColor } from '../../../model/Highlight';
 
 /** 选区范围（屏幕坐标 + 字符偏移，与 typesetting.HitResult 兼容） */
 export interface SelectionRange {
@@ -63,6 +66,12 @@ export struct SelectionLayer {
   /** Canvas 实际宽 / 高（vp）—— 决定工具栏 clamp 边界 */
   @Prop canvasWidth: number;
   @Prop canvasHeight: number;
+  /** 当前书 ID（用于发布 SaveHighlightIntent） */
+  @Prop bookId: string = '';
+  /** 当前章节 ID */
+  @Prop chapterId: string = '';
+  /** 当前章节 index */
+  @Prop chapterIndex: number = 0;
 
   /** 各种工具栏按钮回调 */
   onLookupWord?: (word: string, context: string) => void;
@@ -280,15 +289,17 @@ export struct SelectionLayer {
   @Builder
   toolbar() {
     Row({ space: 0 }) {
-      // 查词（仅 word）
+      // 查词（仅 word）— publishes LookupWordIntent
       if (this.selection.mode === 'word') {
         this.toolbarBtn('查词', '🔍', () => {
+          IntentBus.getInstance().publish(makeLookupWordIntent(this.selection.text, this.contextText()));
           this.onLookupWord?.(this.selection.text, this.contextText());
         });
       }
-      // 解释句子（仅 sentence）
+      // 解释句子（仅 sentence）— publishes LookupWordIntent with full sentence as context
       if (this.selection.mode === 'sentence') {
         this.toolbarBtn('解释', '💡', () => {
+          IntentBus.getInstance().publish(makeLookupWordIntent(this.selection.text, this.selection.text));
           this.onExplainSentence?.(this.selection.text);
         });
       }
@@ -299,7 +310,20 @@ export struct SelectionLayer {
         this.onTtsRead?.(this.selection.text);
       });
       this.toolbarBtn('高亮', '✏', () => {
-        if (this.selection.range) this.onHighlight?.(this.selection.range);
+        if (this.selection.range) {
+          // Publish SaveHighlightIntent with default yellow color; HighlightLayer color picker handles re-color.
+          IntentBus.getInstance().publish(makeSaveHighlightIntent({
+            bookId: this.bookId,
+            chapterId: this.chapterId,
+            chapterIndex: this.chapterIndex,
+            blockIndex: this.selection.range.blockIndex,
+            startCharOffset: this.selection.range.startCharOffset,
+            endCharOffset: this.selection.range.endCharOffset,
+            text: this.selection.text,
+            color: 'yellow' as HighlightColor,
+          }));
+          this.onHighlight?.(this.selection.range);
+        }
       });
       this.toolbarBtn('笔记', '📝', () => {
         if (this.selection.range) this.onAddNote?.(this.selection.range);

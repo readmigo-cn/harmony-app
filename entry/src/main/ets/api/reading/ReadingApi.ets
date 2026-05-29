@@ -9,10 +9,32 @@ import {
   CreateHighlightDto,
   UpdateHighlightDto,
 } from '../../model/Highlight';
-import { UserBook, BookStatus } from '../../model/Book';
+import { Book, UserBook, BookStatus } from '../../model/Book';
+import { Chapter, ChapterContent } from '../../model/Chapter';
+
+export interface BookContext {
+  bookId: string;
+  chapters: Chapter[];
+  totalDurationSeconds?: number;
+}
+
+export interface UpdateReadingProgressPayload {
+  chapterIndex: number;
+  blockIndex?: number;
+  charOffset?: number;
+  pageIndex?: number;
+  percent: number;
+}
 
 /**
  * Reading API client. 与 server-cn 路由对齐：
+ *   GET    /api/v1/books/:bookId
+ *   GET    /api/v1/books/:bookId/context
+ *   GET    /api/v1/books/:bookId/chapters
+ *   GET    /api/v1/books/:bookId/content/:chapterId
+ *   GET    /api/v1/books/:bookId/chapters/:chapterId/text
+ *   PATCH  /api/v1/reading/progress/:bookId
+ *   POST   /api/v1/reading/books/:bookId/complete
  *   GET   /api/v1/bookshelf
  *   POST  /api/v1/bookshelf/:bookId
  *   PATCH /api/v1/bookshelf/:bookId/status
@@ -26,6 +48,45 @@ import { UserBook, BookStatus } from '../../model/Book';
  *   DELETE /api/v1/reading/highlights/:id
  */
 export class ReadingApi {
+  // ---------- Book / Chapter loading ----------------------------------------
+
+  static getBookDetail(bookId: string): Promise<Book> {
+    return HttpClient.get<Book>(`/api/v1/books/${encodeURIComponent(bookId)}`);
+  }
+
+  static getBookContext(bookId: string): Promise<BookContext> {
+    return HttpClient.get<BookContext>(`/api/v1/books/${encodeURIComponent(bookId)}/context`);
+  }
+
+  static getChapters(bookId: string): Promise<Chapter[]> {
+    return HttpClient.get<Chapter[]>(`/api/v1/books/${encodeURIComponent(bookId)}/chapters`);
+  }
+
+  static getChapterContent(bookId: string, chapterId: string): Promise<ChapterContent> {
+    return HttpClient.get<ChapterContent>(
+      `/api/v1/books/${encodeURIComponent(bookId)}/content/${encodeURIComponent(chapterId)}`,
+    );
+  }
+
+  static getChapterText(bookId: string, chapterId: string): Promise<string> {
+    return HttpClient.get<string>(
+      `/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/text`,
+    );
+  }
+
+  static updateReadingProgress(bookId: string, payload: UpdateReadingProgressPayload): Promise<void> {
+    return HttpClient.patch<void>(
+      `/api/v1/reading/progress/${encodeURIComponent(bookId)}`,
+      payload as unknown as object,
+    );
+  }
+
+  static markBookComplete(bookId: string): Promise<void> {
+    return HttpClient.post<void>(
+      `/api/v1/reading/books/${encodeURIComponent(bookId)}/complete`,
+      {},
+    );
+  }
   // ---------- Progress ------------------------------------------------------
 
   static getProgress(bookId: string): Promise<ReadingProgressDto> {

@@ -78,7 +78,7 @@ const LINE_HEIGHT_OPTIONS: LineHeightOption[] = [
   { level: 3, label: '宽松', multiplier: LINE_HEIGHT_LEVEL_MAP[3] },
 ];
 
-/** 主题档位元数据（含视觉示意色） */
+/** 主题档位元数据（含视觉示意色）— iOS parity: white/sepia/gray/dark */
 interface ThemeOption {
   value: ReaderTheme;
   label: string;
@@ -87,10 +87,10 @@ interface ThemeOption {
 }
 
 const THEME_OPTIONS: ThemeOption[] = [
-  { value: 'day',    label: '日间',     bg: '#FFFFFF', fg: '#1A1A1A' },
-  { value: 'night',  label: '夜间',     bg: '#1F1F1F', fg: '#D9D9D9' },
-  { value: 'paper',  label: '羊皮纸',   bg: '#FAF2E3', fg: '#4D331A' },
-  { value: 'system', label: '跟随系统', bg: '#A78BFA', fg: '#FFFFFF' },
+  { value: 'day',    label: '白色',     bg: '#FFFFFF', fg: '#1A1A1A' },
+  { value: 'paper',  label: '米色',     bg: '#FAF2E3', fg: '#4D331A' },
+  { value: 'sepia',  label: '灰色',     bg: '#E8E8E8', fg: '#2A2A2A' },
+  { value: 'night',  label: '深色',     bg: '#1F1F1F', fg: '#D9D9D9' },
 ];
 
 /** 翻页档位元数据 */
@@ -154,6 +154,10 @@ export struct ReaderSettingsSheet {
   onPageTurnModeChange?: (mode: PageTurnMode) => void;
   /** 字体变化回调，参数为 fontFamily 名 */
   onFontChange?: (font: ReaderFont, family: string) => void;
+  /** 字间距变化回调 */
+  onLetterSpacingChange?: (spacing: number) => void;
+  /** 亮度变化回调（0–100） */
+  onBrightnessChange?: (brightness: number) => void;
 
   // ── 当前选中状态（从 SettingsStore 初始化）──
   @State private fontSizeLevel: FontSizeLevel = SettingsStore.getReaderFontSizeLevel();
@@ -161,6 +165,10 @@ export struct ReaderSettingsSheet {
   @State private theme: ReaderTheme = SettingsStore.getReaderTheme();
   @State private pageTurnMode: PageTurnMode = SettingsStore.getReaderPageTurnMode();
   @State private readerFont: ReaderFont = SettingsStore.getReaderFont();
+  /** 字间距 0–4pt，步长 0.5；默认 0 */
+  @State private letterSpacing: number = 0;
+  /** 亮度 0–100；默认 80 */
+  @State private brightness: number = 80;
 
   aboutToAppear(): void {
     // 每次打开重新拉取，避免外部其他途径变更未同步
@@ -220,6 +228,20 @@ export struct ReaderSettingsSheet {
 
   private pageTurnLabel(mode: PageTurnMode): string {
     return PAGE_TURN_OPTIONS.find((o) => o.value === mode)?.label ?? mode;
+  }
+
+  private handleLetterSpacing(value: number): void {
+    const clamped = Math.round(Math.max(0, Math.min(4, value)) * 2) / 2;
+    if (Math.abs(clamped - this.letterSpacing) < 0.01) return;
+    this.letterSpacing = clamped;
+    this.onLetterSpacingChange?.(clamped);
+  }
+
+  private handleBrightness(value: number): void {
+    const clamped = Math.round(Math.max(0, Math.min(100, value)));
+    if (clamped === this.brightness) return;
+    this.brightness = clamped;
+    this.onBrightnessChange?.(clamped);
   }
 
   // ───── builders ─────
@@ -456,6 +478,96 @@ export struct ReaderSettingsSheet {
     .onClick(() => this.handlePageTurn(opt.value))
   }
 
+  /** Section E_extra：字间距（0–4pt 滑块，0.5 步长） */
+  @Builder
+  letterSpacingSection() {
+    Column({ space: 0 }) {
+      this.sectionHeader('字间距')
+
+      Row({ space: Spacing.s3 }) {
+        Text('紧')
+          .fontSize(FontSizeToken.caption1)
+          .fontColor(useColor(TextColors.tertiary, this.isDark))
+          .width(28)
+          .textAlign(TextAlign.Center)
+
+        Slider({
+          value: this.letterSpacing,
+          min: 0,
+          max: 4,
+          step: 0.5,
+          style: SliderStyle.OutSet,
+        })
+          .layoutWeight(1)
+          .selectedColor(useColor(AccentColors.primary, this.isDark))
+          .trackColor(useColor(BgColors.secondary, this.isDark))
+          .onChange((value: number) => this.handleLetterSpacing(value))
+
+        Text('宽')
+          .fontSize(FontSizeToken.caption1)
+          .fontColor(useColor(TextColors.tertiary, this.isDark))
+          .width(28)
+          .textAlign(TextAlign.Center)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Text(`${this.letterSpacing.toFixed(1)}pt`)
+        .fontSize(FontSizeToken.caption1)
+        .fontColor(useColor(TextColors.tertiary, this.isDark))
+        .margin({ top: Spacing.s2 })
+        .alignSelf(ItemAlign.Center)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: Spacing.s4, bottom: Spacing.s4 })
+  }
+
+  /** Section F：亮度（0–100 滑块） */
+  @Builder
+  brightnessSection() {
+    Column({ space: 0 }) {
+      this.sectionHeader('亮度')
+
+      Row({ space: Spacing.s3 }) {
+        Text('☾')
+          .fontSize(FontSizeToken.callout)
+          .fontColor(useColor(TextColors.tertiary, this.isDark))
+          .width(28)
+          .textAlign(TextAlign.Center)
+
+        Slider({
+          value: this.brightness,
+          min: 0,
+          max: 100,
+          step: 1,
+          style: SliderStyle.OutSet,
+        })
+          .layoutWeight(1)
+          .selectedColor(useColor(AccentColors.primary, this.isDark))
+          .trackColor(useColor(BgColors.secondary, this.isDark))
+          .onChange((value: number) => this.handleBrightness(value))
+
+        Text('☀')
+          .fontSize(FontSizeToken.callout)
+          .fontColor(useColor(TextColors.tertiary, this.isDark))
+          .width(28)
+          .textAlign(TextAlign.Center)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Text(`${this.brightness}%`)
+        .fontSize(FontSizeToken.caption1)
+        .fontColor(useColor(TextColors.tertiary, this.isDark))
+        .margin({ top: Spacing.s2 })
+        .alignSelf(ItemAlign.Center)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: Spacing.s4, bottom: Spacing.s4 })
+  }
+
   /** Section E：字体 */
   @Builder
   fontSection() {
@@ -525,6 +637,14 @@ export struct ReaderSettingsSheet {
         .color(useColor(SurfaceColors.divider, this.isDark))
         .strokeWidth(0.5)
       this.pageTurnSection()
+      Divider()
+        .color(useColor(SurfaceColors.divider, this.isDark))
+        .strokeWidth(0.5)
+      this.letterSpacingSection()
+      Divider()
+        .color(useColor(SurfaceColors.divider, this.isDark))
+        .strokeWidth(0.5)
+      this.brightnessSection()
       Divider()
         .color(useColor(SurfaceColors.divider, this.isDark))
         .strokeWidth(0.5)

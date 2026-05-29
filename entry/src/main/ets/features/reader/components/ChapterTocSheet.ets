@@ -32,6 +32,8 @@ import { AppEmptyState } from '../../../ui/primitives/EmptyState';
 import { Chapter } from '../../../model/Chapter';
 import { BooksApi } from '../../../api/books/BooksApi';
 import { ChapterStatus, ReadingStore } from '../../../store/ReadingStore';
+import { IntentBus } from '../../../core/intent/IntentBus';
+import { makeJumpToChapterIntent } from '../intent/ReaderIntents';
 
 /** 视图模型：在 Chapter 基础上挂状态。 */
 interface ChapterRow {
@@ -118,6 +120,10 @@ export struct ChapterTocSheet {
 
   private handleTap(index: number): void {
     this.visible = false;
+    const ch = this.chapters[index];
+    if (ch) {
+      IntentBus.getInstance().publish(makeJumpToChapterIntent(ch.id ?? String(index)));
+    }
     this.onChapterSelect?.(index);
   }
 

@@ -25,6 +25,8 @@ import { Spacing, Radius, Elevation } from '../../../core/theme/AppSpacing';
 import { Highlight, HighlightColor } from '../../../model/Highlight';
 import { SelectionRange } from './SelectionLayer';
 import { AppButton } from './Button';
+import { IntentBus } from '../../../core/intent/IntentBus';
+import { makeEditHighlightIntent, makeDeleteHighlightIntent } from '../intent/ReaderIntents';
 
 /** 4 色对照（顺序与 Reader 现有配置一致） */
 const HIGHLIGHT_COLORS: HighlightColor[] = ['yellow', 'green', 'blue', 'pink'];
@@ -45,10 +47,12 @@ type HighlightAction = 'recolor' | 'delete' | 'note' | 'copy';
 export struct HighlightLayer {
   /** 当前页 index（用于按页过滤） */
   @Prop pageIndex: number;
-  /** 当前书所有 highlights（Reader 注入） */
+  /** 当前书所有 highlights（Reader 注入，由 HighlightService.shared.list(bookId, chapterId) 提供） */
   @Prop highlights: Highlight[];
   /** 暗色 */
   @Prop isDark: boolean;
+  /** 当前书 ID（用于发布 Edit/Delete 意图） */
+  @Prop bookId: string = '';
   /** 颜色选择 popover 是否显示（由父组件通过 selectionRange 触发） */
   @Link colorPickerVisible: boolean;
   /** 触发颜色选择的选区（用来生成 highlight） */
@@ -188,10 +192,19 @@ export struct HighlightLayer {
       this.dismissActionSheet();
       return;
     }
-    if (action === 'recolor' && color && this.onUpdate) {
-      await this.onUpdate(h.id, { color });
-    } else if (action === 'delete' && this.onDelete) {
-      await this.onDelete(h.id);
+    if (action === 'recolor' && color) {
+      IntentBus.getInstance().publish(makeEditHighlightIntent({
+        highlightId: h.id,
+        bookId: this.bookId,
+        color,
+      }));
+      if (this.onUpdate) await this.onUpdate(h.id, { color });
+    } else if (action === 'delete') {
+      IntentBus.getInstance().publish(makeDeleteHighlightIntent({
+        highlightId: h.id,
+        bookId: this.bookId,
+      }));
+      if (this.onDelete) await this.onDelete(h.id);
     } else if (action === 'note' && this.onAddNote) {
       this.onAddNote(h.id);
     } else if (action === 'copy' && this.onCopy) {
