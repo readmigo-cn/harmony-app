@@ -10,6 +10,7 @@ import {
   BookmarksRepository,
   Bookmark,
 } from '../../../core/persistence/repositories/BookmarksRepository';
+import { SyncCoordinator } from '../../../core/sync';
 
 export type { Bookmark };
 
@@ -60,6 +61,8 @@ class BookmarksServiceImpl {
     };
     await BookmarksRepository.insert(bookmark);
     this.cache.delete(input.bookId);
+    // P0-B.3: 入 syncfusion 持久通道；端点未就绪时 BookmarkAdapter.push no-op
+    SyncCoordinator.persistent.bookmark.upsert(bookmark);
     return bookmark;
   }
 
@@ -69,6 +72,8 @@ class BookmarksServiceImpl {
   async delete(bookmarkId: string): Promise<void> {
     await BookmarksRepository.deleteById(bookmarkId);
     this.cache.clear();
+    // P0-B.3: 入 syncfusion 删除队列
+    SyncCoordinator.persistent.bookmark.delete(bookmarkId);
   }
 }
 

@@ -1,9 +1,11 @@
 import { RealtimeChannel } from './RealtimeChannel';
 import { PersistentChannel } from './PersistentChannel';
 import { ProgressAdapter } from './ProgressAdapter';
+import { BookmarkAdapter } from './BookmarkAdapter';
 import type { RealtimePayloads, PersistentDomainKey } from './SyncDomain';
 import type { PersistentConflict, ConflictListener } from './PersistentChannel';
 import type { ReadingProgressDto } from '../../model/ReadingProgress';
+import type { Bookmark } from '../persistence/repositories/BookmarksRepository';
 
 /**
  * Syncfusion 统一对外 API。
@@ -77,6 +79,9 @@ function makePersistentHandle<TKey extends PersistentDomainKey, TPayload>(
 const progressChannel: PersistentChannel<'progress', ReadingProgressDto> =
   new PersistentChannel<'progress', ReadingProgressDto>('progress', ProgressAdapter);
 
+const bookmarkChannel: PersistentChannel<'bookmark', Bookmark> =
+  new PersistentChannel<'bookmark', Bookmark>('bookmark', BookmarkAdapter);
+
 // ---------- Public API ----------
 
 export const SyncCoordinator: {
@@ -87,7 +92,8 @@ export const SyncCoordinator: {
   };
   persistent: {
     progress: PersistentDomainHandle<ReadingProgressDto>;
-    // bookmark / highlight / bookshelf / history / session ← P0-B.3+
+    bookmark: PersistentDomainHandle<Bookmark>;
+    // highlight / bookshelf / history / session ← P1-B+
   };
 } = {
   realtime: {
@@ -97,5 +103,6 @@ export const SyncCoordinator: {
   },
   persistent: {
     progress: makePersistentHandle(progressChannel),
+    bookmark: makePersistentHandle(bookmarkChannel),
   },
 };
